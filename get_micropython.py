@@ -42,13 +42,13 @@ int run_micro_python(const char* code) {
         f.write(data)
 
 def main():
-    # if os.path.isdir("micropython"):
-    #     print("MicroPython folder already exists!")
-    #     exit(1)
+    if os.path.isdir("micropython"):
+        print("MicroPython folder already exists!")
+        exit(1)
 
-    # run("git clone git@github.com:micropython/micropython.git")
+    run("git clone git@github.com:micropython/micropython.git")
     os.chdir("micropython")
-    # run("git checkout tags/v1.17")
+    run("git checkout tags/v1.17")
 
     patch_main()
     patch_proj()
