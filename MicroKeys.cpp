@@ -14,10 +14,7 @@ BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
-int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
-                     _In_opt_ HINSTANCE hPrevInstance,
-                     _In_ LPWSTR    lpCmdLine,
-                     _In_ int       nCmdShow)
+int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow)
 {
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
@@ -52,9 +49,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     return (int) msg.wParam;
 }
 
-extern "C" int main() {
-    return wWinMain(GetModuleHandle(NULL), NULL, NULL, SW_SHOW);
-}
+//extern "C" int main() {
+//    return wWinMain(GetModuleHandle(NULL), NULL, NULL, SW_SHOW);
+//}
 
 //
 //  FUNCTION: MyRegisterClass()
@@ -115,7 +112,7 @@ extern "C" int run_micro_python(const char* code);
 #include <stdio.h>
 void Example(HWND hWnd)
 {
-    int ret = run_micro_python("print('hi')");
+    int ret = run_micro_python("temp=1\ntemp+=1\nprint(temp)");
     char sz[100];
     sprintf_s(sz, "returned: %d", ret);
     MessageBoxA(hWnd, sz, "Message", 0);

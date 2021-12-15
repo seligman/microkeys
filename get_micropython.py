@@ -9,32 +9,34 @@ def run(cmd):
     subprocess.check_call(cmd, shell=True)
 
 
-def patch_proj():
-    fn = r"ports\windows\micropython.vcxproj"
+def patch_wrapper(fix):
+    fn = fix(None)
     print(f"Patching {fn}")
+    run(f'git restore "{fn}"')
     with open(fn, "rt", newline="") as f:
         data = f.read()
+    data = fix(data)
+    with open(fn, "wt", newline="") as f:
+        f.write(data)
 
-    if "StaticLibrary" in data:
-        print("  Already patched!")
-    else:
-        data = data.replace(
-            '<ConfigurationType>Application</ConfigurationType>',
-            '<ConfigurationType>StaticLibrary</ConfigurationType>',
-        )
-        with open(fn, "wt", newline="") as f:
-            f.write(data)
 
-def patch_main():
-    fn = r"ports\unix\main.c"
-    print(f"Patching {fn}")
-    with open(fn, "rt", newline="") as f:
-        data = f.read()
-    if "run_micro_python" in data:
-        print("  Already patched!")
-    else:
-        data = data.replace("int main(", "int old_main(")
-        data += """
+def fix_project(data):
+    if data is None:
+        return r"ports\windows\micropython.vcxproj"
+
+    data = data.replace(
+        '<ConfigurationType>Application</ConfigurationType>',
+        '<ConfigurationType>StaticLibrary</ConfigurationType>',
+    )
+    return data
+
+
+def fix_main(data):
+    if data is None:
+        return r"ports\unix\main.c"
+
+    data = data.replace("int main(", "int old_main(")
+    data += """
 int run_micro_python(const char* code) {
     // TODO
     mp_stack_ctrl_init();
@@ -45,12 +47,26 @@ int run_micro_python(const char* code) {
     mp_stack_set_limit(stack_limit);
     static mp_obj_t pystack[1024];
     mp_pystack_init(pystack, &pystack[MP_ARRAY_SIZE(pystack)]);
-    return execute_from_lexer(LEX_SRC_STR, code, MP_PARSE_EVAL_INPUT, true);
+    return execute_from_lexer(LEX_SRC_STR, code, MP_PARSE_FILE_INPUT, true);
     return 0;
 }
-        """
-        with open(fn, "wt", newline="") as f:
-            f.write(data)
+    """
+    return data
+
+
+def fix_print(data):
+    if data is None:
+        return r"py\modbuiltins.c"
+
+    data = data.split("\n")
+    for i, row in enumerate(data):
+        if "mp_obj_t mp_builtin_print" in row:
+            data = data[:i+1] + [
+                "// TODO: Fix print handling",
+                "return mp_const_none;",
+            ] + data[i+1:]
+    data = "\n".join(data)
+    return data
 
 
 def main():
@@ -63,8 +79,9 @@ def main():
         print("Already have MicroPython")
         os.chdir("micropython")
 
-    patch_main()
-    patch_proj()
+    patch_wrapper(fix_main)
+    patch_wrapper(fix_project)
+    patch_wrapper(fix_print)
 
 
 if __name__ == "__main__":
