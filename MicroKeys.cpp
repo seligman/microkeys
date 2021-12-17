@@ -14,33 +14,20 @@ BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
-int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow)
-{
-    UNREFERENCED_PARAMETER(hPrevInstance);
-    UNREFERENCED_PARAMETER(lpCmdLine);
-
-    // TODO: Place code here.
-
-    // Initialize global strings
+int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow) {
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
     LoadStringW(hInstance, IDC_MICROKEYS, szWindowClass, MAX_LOADSTRING);
     MyRegisterClass(hInstance);
 
-    // Perform application initialization:
-    if (!InitInstance (hInstance, nCmdShow))
-    {
+    if (!InitInstance (hInstance, nCmdShow)) {
         return FALSE;
     }
 
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_MICROKEYS));
-
     MSG msg;
 
-    // Main message loop:
-    while (GetMessage(&msg, nullptr, 0, 0))
-    {
-        if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
-        {
+    while (GetMessage(&msg, nullptr, 0, 0)) {
+        if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
@@ -53,13 +40,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmd
 //    return wWinMain(GetModuleHandle(NULL), NULL, NULL, SW_SHOW);
 //}
 
-//
-//  FUNCTION: MyRegisterClass()
-//
-//  PURPOSE: Registers the window class.
-//
-ATOM MyRegisterClass(HINSTANCE hInstance)
-{
+ATOM MyRegisterClass(HINSTANCE hInstance){
     WNDCLASSEXW wcex;
 
     wcex.cbSize = sizeof(WNDCLASSEX);
@@ -79,25 +60,13 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     return RegisterClassExW(&wcex);
 }
 
-//
-//   FUNCTION: InitInstance(HINSTANCE, int)
-//
-//   PURPOSE: Saves instance handle and creates main window
-//
-//   COMMENTS:
-//
-//        In this function, we save the instance handle in a global variable and
-//        create and display the main program window.
-//
-BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
-{
-   hInst = hInstance; // Store instance handle in our global variable
+BOOL InitInstance(HINSTANCE hInstance, int nCmdShow) {
+   hInst = hInstance;
 
    HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
       CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
 
-   if (!hWnd)
-   {
+   if (!hWnd) {
       return FALSE;
    }
 
@@ -108,30 +77,24 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 }
 
 extern "C" int run_micro_python(const char* code);
+extern "C" void keys_press_invoke(const char* msg) {
+    MessageBoxA(NULL, msg, "Test Message", 0);
+}
 
-#include <stdio.h>
-void Example(HWND hWnd)
-{
-    int ret = run_micro_python("temp=1\ntemp+=1\nprint(temp)");
+void Example(HWND hWnd) {
+    int ret = run_micro_python(
+        "import keys\n"
+        "val = keys.add_ints(1, 2)\n"
+        "val += 100\n"
+        "keys.press(f\"MicroPython sends {val}!\")\n"
+    );
     char sz[100];
     sprintf_s(sz, "returned: %d", ret);
     MessageBoxA(hWnd, sz, "Message", 0);
 }
 
-//
-//  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
-//
-//  PURPOSE: Processes messages for the main window.
-//
-//  WM_COMMAND  - process the application menu
-//  WM_PAINT    - Paint the main window
-//  WM_DESTROY  - post a quit message and return
-//
-//
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    switch (message)
-    {
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    switch (message) {
     case WM_LBUTTONDOWN:
         Example(hWnd);
         return 0;
@@ -153,6 +116,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
         }
         break;
+
     case WM_PAINT:
         {
             PAINTSTRUCT ps;
@@ -161,21 +125,20 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             EndPaint(hWnd, &ps);
         }
         break;
+
     case WM_DESTROY:
         PostQuitMessage(0);
         break;
+
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
+
     return 0;
 }
 
-// Message handler for about box.
-INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    UNREFERENCED_PARAMETER(lParam);
-    switch (message)
-    {
+INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
+    switch (message) {
     case WM_INITDIALOG:
         return (INT_PTR)TRUE;
 
@@ -187,5 +150,6 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     }
+
     return (INT_PTR)FALSE;
 }
