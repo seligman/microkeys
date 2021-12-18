@@ -3,18 +3,28 @@
 
 #define MAX_LOADSTRING 100
 
-// Global Variables:
-HINSTANCE hInst;                                // current instance
-WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
-WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
+extern "C" {
+    int run_micro_python(const char* code);
+    void keys_press_invoke(const char* msg);
+}
 
-// Forward declarations of functions included in this code module:
-ATOM                MyRegisterClass(HINSTANCE hInstance);
-BOOL                InitInstance(HINSTANCE, int);
-LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
-INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
+HINSTANCE hInst;
+WCHAR szTitle[MAX_LOADSTRING];
+WCHAR szWindowClass[MAX_LOADSTRING];
 
-int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow) {
+HWND hWndMain;
+HWND hWndTest;
+HWND hWndEdit;
+
+ATOM MyRegisterClass(HINSTANCE hInstance);
+BOOL InitInstance(HINSTANCE, int);
+LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
+INT_PTR CALLBACK About(HWND, UINT, WPARAM, LPARAM);
+void Resize(HWND hWnd);
+void LogMessage(const char* msg);
+void Example();
+
+int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine, _In_ int nCmdShow) {
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
     LoadStringW(hInstance, IDC_MICROKEYS, szWindowClass, MAX_LOADSTRING);
     MyRegisterClass(hInstance);
@@ -41,21 +51,18 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmd
 //}
 
 ATOM MyRegisterClass(HINSTANCE hInstance){
-    WNDCLASSEXW wcex;
+    WNDCLASSEXW wcex = { 0 };
 
     wcex.cbSize = sizeof(WNDCLASSEX);
-
-    wcex.style          = CS_HREDRAW | CS_VREDRAW;
-    wcex.lpfnWndProc    = WndProc;
-    wcex.cbClsExtra     = 0;
-    wcex.cbWndExtra     = 0;
-    wcex.hInstance      = hInstance;
-    wcex.hIcon          = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_MICROKEYS));
-    wcex.hCursor        = LoadCursor(nullptr, IDC_ARROW);
-    wcex.hbrBackground  = (HBRUSH)(COLOR_WINDOW+1);
-    wcex.lpszMenuName   = MAKEINTRESOURCEW(IDC_MICROKEYS);
-    wcex.lpszClassName  = szWindowClass;
-    wcex.hIconSm        = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
+    wcex.style = CS_HREDRAW | CS_VREDRAW;
+    wcex.lpfnWndProc = WndProc;
+    wcex.hInstance = hInstance;
+    wcex.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_MICROKEYS));
+    wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW+1);
+    wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_MICROKEYS);
+    wcex.lpszClassName = szWindowClass;
+    wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
     return RegisterClassExW(&wcex);
 }
@@ -63,46 +70,114 @@ ATOM MyRegisterClass(HINSTANCE hInstance){
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow) {
    hInst = hInstance;
 
-   HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
+   hWndMain = CreateWindowW(
+       szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
+       CW_USEDEFAULT, CW_USEDEFAULT, 
+       500, 500, 
+       nullptr, nullptr, hInstance, nullptr);
 
-   if (!hWnd) {
+   if (!hWndMain) {
       return FALSE;
    }
 
-   ShowWindow(hWnd, nCmdShow);
-   UpdateWindow(hWnd);
+   hWndTest = CreateWindowEx(WS_EX_CLIENTEDGE, _T("Button"), _T("Test"),
+       WS_CHILD | WS_VISIBLE, 0, 0, 20, 60, hWndMain, NULL, NULL, NULL);
+   hWndEdit = CreateWindowEx(WS_EX_CLIENTEDGE, _T("Edit"), _T(""),
+       WS_CHILD | WS_VISIBLE | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_HSCROLL, 0, 20, 200,
+       200, hWndMain, NULL, NULL, NULL);
+
+   SendMessage(hWndEdit, EM_LIMITTEXT, 0x7FFFFFFE, 0);
+   HFONT hFont = CreateFont(
+       -MulDiv(10, GetDeviceCaps(GetDC(hWndEdit), LOGPIXELSY), 72),
+       0, 0, 0, FW_DONTCARE, FALSE, FALSE, FALSE, ANSI_CHARSET,
+       OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+       DEFAULT_PITCH | FF_DONTCARE, TEXT("Courier New"));
+   SendMessage(hWndEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+   Resize(hWndMain);
+
+   ShowWindow(hWndMain, nCmdShow);
+   UpdateWindow(hWndMain);
 
    return TRUE;
 }
 
-extern "C" int run_micro_python(const char* code);
-extern "C" void keys_press_invoke(const char* msg) {
-    MessageBoxA(NULL, msg, "Test Message", 0);
+void LogMessage(const char* msg) {
+    int index = GetWindowTextLength(hWndEdit);
+    // Escape hatch for the input box getting too big
+    if (SendMessage(hWndEdit, WM_GETTEXTLENGTH, 0, 0) > 10 * 1024 * 1024) {
+        SendMessage(hWndEdit, WM_SETTEXT, (WPARAM)0, (LPARAM)_T(""));
+    }
+    SendMessage(hWndEdit, EM_SETSEL, (WPARAM)index, (LPARAM)index);
+    SendMessageA(hWndEdit, EM_REPLACESEL, 0, (LPARAM)msg);
+
+#if 0
+    HANDLE hFile = CreateFile(_T("MicroKeys.log"), FILE_APPEND_DATA, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile != NULL && hFile != INVALID_HANDLE_VALUE)
+    {
+        SYSTEMTIME st = { 0 };
+        GetSystemTime(&st);
+
+        char header[50] = { 0 };
+        sprintf_s(header, "%d-%02d-%02d %2d:%02d:%02d.%04d: ",
+            st.wYear, st.wMonth, st.wDay,
+            st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+
+        SetFilePointer(hFile, 0, NULL, FILE_END);
+        WriteFile(hFile, header, (DWORD)(strlen(header)), NULL, 0);
+        WriteFile(hFile, msg, (DWORD)(strlen(msg)), NULL, NULL);
+        CloseHandle(hFile);
+    }
+#endif
 }
 
-void Example(HWND hWnd) {
+
+#define START_HEIGHT 25
+#define START_WIDTH 60
+#define START_VERT_MARGIN 5
+#define START_HORZ_MARGIN 5
+
+void Resize(HWND hWnd) {
+    RECT rt;
+    GetClientRect(hWnd, &rt);
+    MoveWindow(hWndTest, START_HORZ_MARGIN + rt.left, rt.top + START_VERT_MARGIN, START_WIDTH, START_HEIGHT, TRUE);
+    int topDist = START_HEIGHT + (START_VERT_MARGIN * 2);
+    MoveWindow(hWndEdit, rt.left, rt.top + topDist, rt.right - rt.left, rt.bottom - rt.top - topDist, TRUE);
+}
+
+extern "C" int run_micro_python(const char* code);
+extern "C" void keys_press_invoke(const char* msg) {
+    char temp[1000];
+    sprintf_s(temp, "%s\r\n", msg);
+    LogMessage(temp);
+}
+
+void Example() {
     int ret = run_micro_python(
         "import keys\n"
         "val = keys.add_ints(1, 2)\n"
         "val += 100\n"
         "keys.press(f\"MicroPython sends {val}!\")\n"
     );
-    char sz[100];
-    sprintf_s(sz, "returned: %d", ret);
-    MessageBoxA(hWnd, sz, "Message", 0);
+    char msg[100];
+    sprintf_s(msg, "Call returned: %d\r\n", ret);
+    LogMessage(msg);
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
-    case WM_LBUTTONDOWN:
-        Example(hWnd);
-        return 0;
-
     case WM_COMMAND:
         {
+            int cmd = HIWORD(wParam);
+            switch (cmd) {
+            case BN_CLICKED:
+                if ((HWND)lParam == hWndTest) {
+                    Example();
+                }
+                break;
+            }
+
             int wmId = LOWORD(wParam);
-            // Parse the menu selections:
             switch (wmId)
             {
             case IDM_ABOUT:
