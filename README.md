@@ -16,6 +16,7 @@ There is much work necessary to get this even to an Alpha, not the least of whic
 - [ ] Hook up decorator to allow more than one function.
 - [ ] Decorator should use VK_* style values instead of a string.
 - [x] Load code from .py files.
+- [ ] Some memory leak testing, fixing of all the bugs.
 - [ ] Much better UI.
 - [ ] Documentation.
 - [ ] Make the "embed as a library" changes to MicroPython something that can be merged back into that project.
