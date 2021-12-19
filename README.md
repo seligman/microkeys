@@ -14,7 +14,8 @@ There is much work necessary to get this even to an Alpha, not the least of whic
 - [x] Allow Python code to call back into C++, to enable helpers like `type_string` and so on.
 - [x] Add decorator so we know which functions to call for key presses.
 - [ ] Hook up decorator to allow more than one function.
-- [ ] Load code from .py files.
+- [ ] Decorator should use VK_* style values instead of a string.
+- [x] Load code from .py files.
 - [ ] Much better UI.
 - [ ] Documentation.
 - [ ] Make the "embed as a library" changes to MicroPython something that can be merged back into that project.

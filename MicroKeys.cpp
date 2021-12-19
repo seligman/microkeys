@@ -227,18 +227,30 @@ extern "C" void key_press_store_fun(const char* desc, void* fun) {
     _fun = fun;
 }
 
-// TODO: Load this from a .py file
 void Example() {
-    int ret = run_micro_python(
-        "import keys\n"
-        "@keys.key('test')\n"
-        "def example_func():\n"
-        "    val = keys.add_ints(1, 2)\n"
-        "    val += 100\n"
-        "    keys.press(f'MicroPython sends {val}!')\n"
-    );
+    HANDLE hFile = CreateFile(_T("MicroKeys.py"), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    if (hFile == INVALID_HANDLE_VALUE) {
+        LogMessage("Unable to open MicroKeys.py\r\n");
+        return;
+    }
+
+    DWORD len = GetFileSize(hFile, NULL);
+    char* data = (char*)malloc(len + 1);
+    if (data == NULL) {
+        LogMessage("Failure reading data\r\n");
+        return;
+    }
+
+    memset(data, 0, len + 1);
+    if (!ReadFile(hFile, data, len, NULL, NULL)) {
+        LogMessage("Unable to read data\r\n");
+        return;
+    }
+    int ret = run_micro_python(data);
+    free(data);
     char msg[100];
     sprintf_s(msg, "Call returned: %d\r\n", ret);
     LogMessage(msg);
     run_fun(_fun);
+    
 }
