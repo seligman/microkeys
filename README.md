@@ -17,6 +17,8 @@ There is much work necessary to get this even to an Alpha, not the least of whic
 - [ ] Decorator should use VK_* style values instead of a string.
 - [x] Load code from .py files.
 - [ ] Properly implement `keys.press` to press keys.
+- [ ] Hook up exception handling to log errors.
+- [ ] Log stdout/stderr to the application itself.
 - [ ] Some memory leak testing, fixing of all the bugs.
 - [ ] Much better UI.
 - [ ] Documentation.
