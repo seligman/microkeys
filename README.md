@@ -13,9 +13,11 @@ There is much work necessary to get this even to an Alpha, not the least of whic
 - [x] Find and remove dependencies on the Console, so this can run as a pure GUI application.
 - [x] Allow Python code to call back into C++, to enable helpers like `type_string` and so on.
 - [x] Add decorator so we know which functions to call for key presses.
-- [ ] Hook up decorator to allow more than one function.
-- [ ] Decorator should use VK_* style values instead of a string.
+- [x] Hook up decorator to allow more than one function.
+- [x] Decorator should use VK_* style values instead of a string.
 - [x] Load code from .py files.
+- [ ] Show what keys are being registered
+- [ ] Keep machine state around between keys.
 - [ ] Properly implement `keys.press` to press keys.
 - [ ] Hook up exception handling to log errors.
 - [ ] Log stdout/stderr to the application itself.
@@ -24,4 +26,4 @@ There is much work necessary to get this even to an Alpha, not the least of whic
 - [ ] Documentation.
 - [ ] Make the "embed as a library" changes to MicroPython something that can be merged back into that project.
 - [ ] Clipboard helper functions of some sort.
-- [ ] Other functions as necessary to easy macros.
+- [ ] Other functions as necessary to ease macros.

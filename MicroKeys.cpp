@@ -6,15 +6,21 @@
 extern "C" {
     int run_micro_python(const char* code);
     void keys_press_invoke(const char* msg);
+    int run_micro_python(const char* code);
+    int run_fun(void* fun);
 }
 
-HINSTANCE hInst;
-WCHAR szTitle[MAX_LOADSTRING];
-WCHAR szWindowClass[MAX_LOADSTRING];
+HINSTANCE _hInst;
+WCHAR _szTitle[MAX_LOADSTRING];
+WCHAR _szWindowClass[MAX_LOADSTRING];
 
-HWND hWndMain;
-HWND hWndTest;
-HWND hWndEdit;
+HWND _hWndMain;
+HWND _hWndTest;
+HWND _hWndEdit;
+
+int _numKeys = 0;
+int _curKey = 0;
+int _runKey = -1;
 
 ATOM MyRegisterClass(HINSTANCE hInstance);
 BOOL InitInstance(HINSTANCE, int);
@@ -22,11 +28,11 @@ LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK About(HWND, UINT, WPARAM, LPARAM);
 void Resize(HWND hWnd);
 void LogMessage(const char* msg);
-void Example();
+void LoadPython();
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine, _In_ int nCmdShow) {
-    LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
-    LoadStringW(hInstance, IDC_MICROKEYS, szWindowClass, MAX_LOADSTRING);
+    LoadStringW(hInstance, IDS_APP_TITLE, _szTitle, MAX_LOADSTRING);
+    LoadStringW(hInstance, IDC_MICROKEYS, _szWindowClass, MAX_LOADSTRING);
     MyRegisterClass(hInstance);
 
     if (!InitInstance (hInstance, nCmdShow)) {
@@ -61,55 +67,55 @@ ATOM MyRegisterClass(HINSTANCE hInstance){
     wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW+1);
     wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_MICROKEYS);
-    wcex.lpszClassName = szWindowClass;
+    wcex.lpszClassName = _szWindowClass;
     wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
     return RegisterClassExW(&wcex);
 }
 
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow) {
-   hInst = hInstance;
+   _hInst = hInstance;
 
-   hWndMain = CreateWindowW(
-       szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
+   _hWndMain = CreateWindowW(
+       _szWindowClass, _szTitle, WS_OVERLAPPEDWINDOW,
        CW_USEDEFAULT, CW_USEDEFAULT, 
        500, 500, 
        nullptr, nullptr, hInstance, nullptr);
 
-   if (!hWndMain) {
+   if (!_hWndMain) {
       return FALSE;
    }
 
-   hWndTest = CreateWindowEx(WS_EX_CLIENTEDGE, _T("Button"), _T("Test"),
-       WS_CHILD | WS_VISIBLE, 0, 0, 20, 60, hWndMain, NULL, NULL, NULL);
-   hWndEdit = CreateWindowEx(WS_EX_CLIENTEDGE, _T("Edit"), _T(""),
+   _hWndTest = CreateWindowEx(WS_EX_CLIENTEDGE, _T("Button"), _T("Test"),
+       WS_CHILD | WS_VISIBLE, 0, 0, 20, 60, _hWndMain, NULL, NULL, NULL);
+   _hWndEdit = CreateWindowEx(WS_EX_CLIENTEDGE, _T("Edit"), _T(""),
        WS_CHILD | WS_VISIBLE | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_HSCROLL, 0, 20, 200,
-       200, hWndMain, NULL, NULL, NULL);
+       200, _hWndMain, NULL, NULL, NULL);
 
-   SendMessage(hWndEdit, EM_LIMITTEXT, 0x7FFFFFFE, 0);
+   SendMessage(_hWndEdit, EM_LIMITTEXT, 0x7FFFFFFE, 0);
    HFONT hFont = CreateFont(
-       -MulDiv(10, GetDeviceCaps(GetDC(hWndEdit), LOGPIXELSY), 72),
+       -MulDiv(10, GetDeviceCaps(GetDC(_hWndEdit), LOGPIXELSY), 72),
        0, 0, 0, FW_DONTCARE, FALSE, FALSE, FALSE, ANSI_CHARSET,
        OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
        DEFAULT_PITCH | FF_DONTCARE, TEXT("Courier New"));
-   SendMessage(hWndEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
+   SendMessage(_hWndEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-   Resize(hWndMain);
+   Resize(_hWndMain);
 
-   ShowWindow(hWndMain, nCmdShow);
-   UpdateWindow(hWndMain);
+   ShowWindow(_hWndMain, nCmdShow);
+   UpdateWindow(_hWndMain);
 
    return TRUE;
 }
 
 void LogMessage(const char* msg) {
-    int index = GetWindowTextLength(hWndEdit);
+    int index = GetWindowTextLength(_hWndEdit);
     // Escape hatch for the input box getting too big
-    if (SendMessage(hWndEdit, WM_GETTEXTLENGTH, 0, 0) > 10 * 1024 * 1024) {
-        SendMessage(hWndEdit, WM_SETTEXT, (WPARAM)0, (LPARAM)_T(""));
+    if (SendMessage(_hWndEdit, WM_GETTEXTLENGTH, 0, 0) > 10 * 1024 * 1024) {
+        SendMessage(_hWndEdit, WM_SETTEXT, (WPARAM)0, (LPARAM)_T(""));
     }
-    SendMessage(hWndEdit, EM_SETSEL, (WPARAM)index, (LPARAM)index);
-    SendMessageA(hWndEdit, EM_REPLACESEL, 0, (LPARAM)msg);
+    SendMessage(_hWndEdit, EM_SETSEL, (WPARAM)index, (LPARAM)index);
+    SendMessageA(_hWndEdit, EM_REPLACESEL, 0, (LPARAM)msg);
 
 #if 0
     HANDLE hFile = CreateFile(_T("MicroKeys.log"), FILE_APPEND_DATA, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -140,20 +146,31 @@ void LogMessage(const char* msg) {
 void Resize(HWND hWnd) {
     RECT rt;
     GetClientRect(hWnd, &rt);
-    MoveWindow(hWndTest, START_HORZ_MARGIN + rt.left, rt.top + START_VERT_MARGIN, START_WIDTH, START_HEIGHT, TRUE);
+    MoveWindow(_hWndTest, START_HORZ_MARGIN + rt.left, rt.top + START_VERT_MARGIN, START_WIDTH, START_HEIGHT, TRUE);
     int topDist = START_HEIGHT + (START_VERT_MARGIN * 2);
-    MoveWindow(hWndEdit, rt.left, rt.top + topDist, rt.right - rt.left, rt.bottom - rt.top - topDist, TRUE);
+    MoveWindow(_hWndEdit, rt.left, rt.top + topDist, rt.right - rt.left, rt.bottom - rt.top - topDist, TRUE);
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+    case WM_HOTKEY:
+        if ((int)wParam <= _numKeys && wParam > 0) {
+            _runKey = ((int)wParam) - 1;
+            _curKey = 0;
+            LoadPython();
+        }
+        return 0;
+
     case WM_COMMAND:
         {
             int cmd = HIWORD(wParam);
             switch (cmd) {
             case BN_CLICKED:
-                if ((HWND)lParam == hWndTest) {
-                    Example();
+                if ((HWND)lParam == _hWndTest) {
+                    _numKeys = 0;
+                    _runKey = -1;
+                    _curKey = 0;
+                    LoadPython();
                 }
                 break;
             }
@@ -162,7 +179,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             switch (wmId)
             {
             case IDM_ABOUT:
-                DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+                DialogBox(_hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
                 break;
             case IDM_EXIT:
                 DestroyWindow(hWnd);
@@ -210,24 +227,25 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
     return (INT_PTR)FALSE;
 }
 
-extern "C" int run_micro_python(const char* code);
-extern "C" int run_fun(void* fun);
-
 extern "C" void keys_press_invoke(const char* msg) {
     char temp[1000];
     sprintf_s(temp, "%s\r\n", msg);
     LogMessage(temp);
 }
 
-// TODO: Store this in a dictionary or something to allow more than one function
-const char* _desc;
-void* _fun;
-extern "C" void key_press_store_fun(const char* desc, void* fun) {
-    _desc = desc;
-    _fun = fun;
+extern "C" void key_press_store_fun(int vk, void* fun) {
+    if (_runKey < 0) {
+        _numKeys++;
+        RegisterHotKey(_hWndMain, _numKeys, (vk & 0xff00) >> 8, vk & 0xff);
+    } else {
+        if (_curKey == _runKey) {
+            run_fun(fun);
+        }
+        _curKey++;
+    }
 }
 
-void Example() {
+void LoadPython() {
     HANDLE hFile = CreateFile(_T("MicroKeys.py"), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
         LogMessage("Unable to open MicroKeys.py\r\n");
@@ -246,11 +264,10 @@ void Example() {
         LogMessage("Unable to read data\r\n");
         return;
     }
+
     int ret = run_micro_python(data);
     free(data);
     char msg[100];
     sprintf_s(msg, "Call returned: %d\r\n", ret);
     LogMessage(msg);
-    run_fun(_fun);
-    
 }
