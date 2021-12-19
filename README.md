@@ -20,7 +20,7 @@ There is much work necessary to get this even to an Alpha, not the least of whic
 - [ ] Hook up exception handling to log errors.
 - [ ] Log stdout/stderr to the application itself.
 - [ ] Some memory leak testing, fixing of all the bugs.
-- [ ] Much better UI.
+- [ ] Improve UI.
 - [ ] Documentation.
 - [ ] Make the "embed as a library" changes to MicroPython something that can be merged back into that project.
 - [ ] Clipboard helper functions of some sort.
