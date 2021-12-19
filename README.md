@@ -12,7 +12,8 @@ There is much work necessary to get this even to an Alpha, not the least of whic
 
 - &#9745; Find and remove dependencies on the Console, so this can run as a pure GUI application.
 - &#9745; Allow Python code to call back into C++, to enable helpers like `type_string` and so on.
-- &#9744; Add annotations so we know which functions to call for key presses.
+- &#9745; Add decorator so we know which functions to call for key presses.
+- &#9744; Hook up decorator to allow more than one function.
 - &#9744; Load code from .py files.
 - &#9744; Much better UI.
 - &#9744; Documentation.

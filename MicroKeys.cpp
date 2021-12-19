@@ -145,25 +145,6 @@ void Resize(HWND hWnd) {
     MoveWindow(hWndEdit, rt.left, rt.top + topDist, rt.right - rt.left, rt.bottom - rt.top - topDist, TRUE);
 }
 
-extern "C" int run_micro_python(const char* code);
-extern "C" void keys_press_invoke(const char* msg) {
-    char temp[1000];
-    sprintf_s(temp, "%s\r\n", msg);
-    LogMessage(temp);
-}
-
-void Example() {
-    int ret = run_micro_python(
-        "import keys\n"
-        "val = keys.add_ints(1, 2)\n"
-        "val += 100\n"
-        "keys.press(f\"MicroPython sends {val}!\")\n"
-    );
-    char msg[100];
-    sprintf_s(msg, "Call returned: %d\r\n", ret);
-    LogMessage(msg);
-}
-
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_COMMAND:
@@ -227,4 +208,37 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
     }
 
     return (INT_PTR)FALSE;
+}
+
+extern "C" int run_micro_python(const char* code);
+extern "C" int run_fun(void* fun);
+
+extern "C" void keys_press_invoke(const char* msg) {
+    char temp[1000];
+    sprintf_s(temp, "%s\r\n", msg);
+    LogMessage(temp);
+}
+
+// TODO: Store this in a dictionary or something to allow more than one function
+const char* _desc;
+void* _fun;
+extern "C" void key_press_store_fun(const char* desc, void* fun) {
+    _desc = desc;
+    _fun = fun;
+}
+
+// TODO: Load this from a .py file
+void Example() {
+    int ret = run_micro_python(
+        "import keys\n"
+        "@keys.key('test')\n"
+        "def example_func():\n"
+        "    val = keys.add_ints(1, 2)\n"
+        "    val += 100\n"
+        "    keys.press(f'MicroPython sends {val}!')\n"
+    );
+    char msg[100];
+    sprintf_s(msg, "Call returned: %d\r\n", ret);
+    LogMessage(msg);
+    run_fun(_fun);
 }

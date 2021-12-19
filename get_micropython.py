@@ -11,6 +11,8 @@ def run(cmd):
 
 def patch_wrapper(fix):
     fn = fix(None)
+    fn = fn.split("/")
+    fn = os.path.join(*fn)
     print(f"Patching {fn}")
     run(f'git restore "{fn}"')
     with open(fn, "rt", newline="") as f:
@@ -22,7 +24,7 @@ def patch_wrapper(fix):
 
 def fix_project(data):
     if data is None:
-        return r"ports\windows\micropython.vcxproj"
+        return "ports/windows/micropython.vcxproj"
 
     data = data.replace(
         '<ConfigurationType>Application</ConfigurationType>',
@@ -46,7 +48,7 @@ def fix_project(data):
 
 def fix_main(data):
     if data is None:
-        return r"ports\unix\main.c"
+        return "ports/unix/main.c"
 
     data = data.replace("int main(", "int old_main(")
     data += """
@@ -63,13 +65,41 @@ int run_micro_python(const char* code) {
     return execute_from_lexer(LEX_SRC_STR, code, MP_PARSE_FILE_INPUT, true);
     return 0;
 }
+
+int run_fun(void* fun) {
+    // TODO
+    mp_call_function_0((mp_obj_t)fun);
+    return 0;
+}
     """
     return data
 
 
+def fix_objfun(data):
+    if data is None:
+        return "py/objfun.c"
+
+    todo = []
+    data = data.split("\n")
+    found = {}
+
+    for i, line in enumerate(data):
+        if "#if MICROPY_EMIT_NATIVE" in line:
+            found["native"] = found.get("native", 0) + 1
+            if found["native"] == 3:
+                todo.append((i, "native"))
+
+    todo.sort(reverse=True)
+    for i, patch in todo:
+        if patch == "native":
+            data[i] = data[i].replace("#if MICROPY_EMIT_NATIVE", "#if MICROPY_EMIT_NATIVE || 1")
+
+    return "\n".join(data)
+
+
 def fix_print(data):
     if data is None:
-        return r"py\modbuiltins.c"
+        return "py/modbuiltins.c"
 
     data = data.split("\n")
     for i, row in enumerate(data):
@@ -78,6 +108,7 @@ def fix_print(data):
                 "// TODO: Fix print handling",
                 "return mp_const_none;",
             ] + data[i+1:]
+            break
     data = "\n".join(data)
     return data
 
@@ -95,6 +126,7 @@ def main():
     patch_wrapper(fix_main)
     patch_wrapper(fix_project)
     patch_wrapper(fix_print)
+    patch_wrapper(fix_objfun)
 
 
 if __name__ == "__main__":
