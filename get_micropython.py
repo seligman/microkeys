@@ -51,9 +51,8 @@ def fix_main(data):
         return "ports/unix/main.c"
 
     data = data.replace("int main(", "int old_main(")
-    data += """
+    data += "\n" + """
 int run_micro_python(const char* code) {
-    // TODO
     mp_stack_ctrl_init();
     char* heap = malloc(heap_size);
     gc_init(heap, heap + heap_size);
@@ -63,15 +62,21 @@ int run_micro_python(const char* code) {
     static mp_obj_t pystack[1024];
     mp_pystack_init(pystack, &pystack[MP_ARRAY_SIZE(pystack)]);
     return execute_from_lexer(LEX_SRC_STR, code, MP_PARSE_FILE_INPUT, true);
-    return 0;
 }
 
 int run_fun(void* fun) {
-    // TODO
-    mp_call_function_0((mp_obj_t)fun);
+    mp_hal_set_interrupt_char(CHAR_CTRL_C);
+
+    nlr_buf_t nlr;
+    if (nlr_push(&nlr) == 0) {
+        mp_call_function_0((mp_obj_t)fun);
+        mp_hal_set_interrupt_char(-1);
+        mp_handle_pending(true);
+        nlr_pop();
+    }
     return 0;
 }
-    """
+    """.strip() + "\n"
     return data
 
 

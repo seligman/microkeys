@@ -18,9 +18,15 @@ HWND _hWndMain;
 HWND _hWndTest;
 HWND _hWndEdit;
 
+typedef struct {
+    char desc[50];
+    int vk;
+    void* fun;
+} key_struct;
+#define MAX_KEYS 100
+key_struct _keys[MAX_KEYS];
 int _numKeys = 0;
-int _curKey = 0;
-int _runKey = -1;
+
 
 ATOM MyRegisterClass(HINSTANCE hInstance);
 BOOL InitInstance(HINSTANCE, int);
@@ -86,8 +92,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow) {
       return FALSE;
    }
 
-   _hWndTest = CreateWindowEx(WS_EX_CLIENTEDGE, _T("Button"), _T("Test"),
-       WS_CHILD | WS_VISIBLE, 0, 0, 20, 60, _hWndMain, NULL, NULL, NULL);
+   _hWndTest = CreateWindowEx(WS_EX_CLIENTEDGE, _T("Button"), _T("Load Python"),
+       WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, _hWndMain, NULL, NULL, NULL);
    _hWndEdit = CreateWindowEx(WS_EX_CLIENTEDGE, _T("Edit"), _T(""),
        WS_CHILD | WS_VISIBLE | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_HSCROLL, 0, 20, 200,
        200, _hWndMain, NULL, NULL, NULL);
@@ -138,26 +144,37 @@ void LogMessage(const char* msg) {
 }
 
 
-#define START_HEIGHT 25
-#define START_WIDTH 60
-#define START_VERT_MARGIN 5
-#define START_HORZ_MARGIN 5
+#define LOAD_PYTHON_HEIGHT 25
+#define LOAD_PYTHON_WIDTH 120
+#define LOAD_PYTHON_VERT_MARGIN 5
+#define LOAD_PYTHON_HORZ_MARGIN 5
 
 void Resize(HWND hWnd) {
     RECT rt;
     GetClientRect(hWnd, &rt);
-    MoveWindow(_hWndTest, START_HORZ_MARGIN + rt.left, rt.top + START_VERT_MARGIN, START_WIDTH, START_HEIGHT, TRUE);
-    int topDist = START_HEIGHT + (START_VERT_MARGIN * 2);
-    MoveWindow(_hWndEdit, rt.left, rt.top + topDist, rt.right - rt.left, rt.bottom - rt.top - topDist, TRUE);
+    MoveWindow(_hWndTest, 
+        LOAD_PYTHON_HORZ_MARGIN + rt.left,
+        rt.top + LOAD_PYTHON_VERT_MARGIN,
+        LOAD_PYTHON_WIDTH,
+        LOAD_PYTHON_HEIGHT,
+        TRUE);
+    int topDist = LOAD_PYTHON_HEIGHT + (LOAD_PYTHON_VERT_MARGIN * 2);
+    MoveWindow(_hWndEdit, 
+        rt.left, 
+        rt.top + topDist, 
+        rt.right - rt.left, 
+        rt.bottom - rt.top - topDist, 
+        TRUE);
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_HOTKEY:
         if ((int)wParam <= _numKeys && wParam > 0) {
-            _runKey = ((int)wParam) - 1;
-            _curKey = 0;
-            LoadPython();
+            char temp[1000];
+            sprintf_s(temp, "Keypress of %s detected\r\n", _keys[wParam - 1].desc);
+            LogMessage(temp);
+            run_fun(_keys[wParam - 1].fun);
         }
         return 0;
 
@@ -168,8 +185,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
             case BN_CLICKED:
                 if ((HWND)lParam == _hWndTest) {
                     _numKeys = 0;
-                    _runKey = -1;
-                    _curKey = 0;
                     LoadPython();
                 }
                 break;
@@ -229,20 +244,150 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
 
 extern "C" void keys_press_invoke(const char* msg) {
     char temp[1000];
-    sprintf_s(temp, "%s\r\n", msg);
+    sprintf_s(temp, "keys.press('%s')\r\n", msg);
     LogMessage(temp);
+
+    for (int bail = 0; bail < 50; bail++) {
+        BYTE code[] = {
+            VK_LWIN, VK_RWIN,
+            VK_RSHIFT, VK_LSHIFT,
+            VK_LMENU, VK_RMENU,
+            VK_LCONTROL, VK_RCONTROL,
+            0,
+        };
+        bool hit = false;
+        for (BYTE* cur = code; *cur; cur++) {
+            if (GetAsyncKeyState(*cur) & 0x8000 > 0) {
+                hit = true;
+                break;
+            }
+        }
+        if (hit) {
+            Sleep(100);
+        } else {
+            break;
+        }
+    }
+
+    for (const char* cur = msg; *cur; cur++) {
+        SHORT vk = VkKeyScanA(*cur);
+        UINT scanCode = MapVirtualKeyA(vk, 2);
+        UINT extended = 0;
+        if (scanCode == 0) {
+            extended = KEYEVENTF_EXTENDEDKEY;
+        }
+        scanCode = MapVirtualKeyA(vk, 0);
+        bool shift = (vk & 0x100) != 0;
+        bool ctrl = (vk & 0x200) != 0;
+        bool alt = (vk & 0x400) != 0;
+        vk &= 0xff;
+        if (shift) { keybd_event(VK_SHIFT, 0, 0, 0); }
+        if (ctrl) { keybd_event(VK_CONTROL, 0, 0, 0); }
+        if (alt) { keybd_event(VK_MENU, 0, 0, 0); }
+        keybd_event((BYTE)vk, scanCode, extended, 0);
+        keybd_event((BYTE)vk, scanCode, extended | KEYEVENTF_KEYUP, 0);
+        if (alt) { keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0); }
+        if (ctrl) { keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0); }
+        if (shift) { keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, 0); }
+        Sleep(20);
+    }
+}
+
+void AddDesc(char* dest, const char* val) {
+    if (strlen(dest) > 0) {
+        strcat_s(dest, 50, "+");
+    }
+    strcat_s(dest, 50, val);
 }
 
 extern "C" void key_press_store_fun(int vk, void* fun) {
-    if (_runKey < 0) {
-        _numKeys++;
-        RegisterHotKey(_hWndMain, _numKeys, (vk & 0xff00) >> 8, vk & 0xff);
-    } else {
-        if (_curKey == _runKey) {
-            run_fun(fun);
-        }
-        _curKey++;
+    if (_numKeys >= MAX_KEYS) {
+        return;
     }
+
+    _numKeys++;
+    RegisterHotKey(_hWndMain, _numKeys, (vk & 0xff00) >> 8, vk & 0xff);
+    _keys[_numKeys - 1].vk = vk;
+    _keys[_numKeys - 1].fun = fun;
+
+    char desc[50] = { 0 };
+    char temp[1000] = { 0 };
+
+    if ((vk & 0x100) > 0) { AddDesc(desc, "Alt"); }
+    if ((vk & 0x200) > 0) { AddDesc(desc, "Control"); }
+    if ((vk & 0x400) > 0) { AddDesc(desc, "Shift"); }
+    if ((vk & 0x800) > 0) { AddDesc(desc, "Windows"); }
+
+    switch (vk & 0xFF) {
+    case 0x30: AddDesc(desc, "0"); break;
+    case 0x31: AddDesc(desc, "1"); break;
+    case 0x32: AddDesc(desc, "2"); break;
+    case 0x33: AddDesc(desc, "3"); break;
+    case 0x34: AddDesc(desc, "4"); break;
+    case 0x35: AddDesc(desc, "5"); break;
+    case 0x36: AddDesc(desc, "6"); break;
+    case 0x37: AddDesc(desc, "7"); break;
+    case 0x38: AddDesc(desc, "8"); break;
+    case 0x39: AddDesc(desc, "9"); break;
+    case 0x41: AddDesc(desc, "A"); break;
+    case 0x42: AddDesc(desc, "B"); break;
+    case 0x08: AddDesc(desc, "Back"); break;
+    case 0x43: AddDesc(desc, "C"); break;
+    case 0x0C: AddDesc(desc, "Clear"); break;
+    case 0x11: AddDesc(desc, "Control"); break;
+    case 0x44: AddDesc(desc, "D"); break;
+    case 0x2E: AddDesc(desc, "Delete"); break;
+    case 0x28: AddDesc(desc, "Down"); break;
+    case 0x45: AddDesc(desc, "E"); break;
+    case 0x23: AddDesc(desc, "End"); break;
+    case 0x0D: AddDesc(desc, "Enter"); break;
+    case 0x1B: AddDesc(desc, "Escape"); break;
+    case 0x46: AddDesc(desc, "F"); break;
+    case 0x70: AddDesc(desc, "F1"); break;
+    case 0x79: AddDesc(desc, "F10"); break;
+    case 0x7A: AddDesc(desc, "F11"); break;
+    case 0x7B: AddDesc(desc, "F12"); break;
+    case 0x71: AddDesc(desc, "F2"); break;
+    case 0x72: AddDesc(desc, "F3"); break;
+    case 0x73: AddDesc(desc, "F4"); break;
+    case 0x74: AddDesc(desc, "F5"); break;
+    case 0x75: AddDesc(desc, "F6"); break;
+    case 0x76: AddDesc(desc, "F7"); break;
+    case 0x77: AddDesc(desc, "F8"); break;
+    case 0x78: AddDesc(desc, "F9"); break;
+    case 0x47: AddDesc(desc, "G"); break;
+    case 0x48: AddDesc(desc, "H"); break;
+    case 0x24: AddDesc(desc, "Home"); break;
+    case 0x49: AddDesc(desc, "I"); break;
+    case 0x2D: AddDesc(desc, "Insert"); break;
+    case 0x4A: AddDesc(desc, "J"); break;
+    case 0x4B: AddDesc(desc, "K"); break;
+    case 0x4C: AddDesc(desc, "L"); break;
+    case 0x25: AddDesc(desc, "Left"); break;
+    case 0x4D: AddDesc(desc, "M"); break;
+    case 0x4E: AddDesc(desc, "N"); break;
+    case 0x4F: AddDesc(desc, "O"); break;
+    case 0x50: AddDesc(desc, "P"); break;
+    case 0x51: AddDesc(desc, "Q"); break;
+    case 0x52: AddDesc(desc, "R"); break;
+    case 0x27: AddDesc(desc, "Right"); break;
+    case 0x53: AddDesc(desc, "S"); break;
+    case 0x20: AddDesc(desc, "Space"); break;
+    case 0x54: AddDesc(desc, "T"); break;
+    case 0x09: AddDesc(desc, "Tab"); break;
+    case 0x55: AddDesc(desc, "U"); break;
+    case 0x26: AddDesc(desc, "Up"); break;
+    case 0x56: AddDesc(desc, "V"); break;
+    case 0x57: AddDesc(desc, "W"); break;
+    case 0x58: AddDesc(desc, "X"); break;
+    case 0x59: AddDesc(desc, "Y"); break;
+    case 0x5A: AddDesc(desc, "Z"); break;
+    default: AddDesc(desc, "<Unknown>"); break;
+    }
+
+    strcat_s(_keys[_numKeys - 1].desc, desc);
+    sprintf_s(temp, "Registered %s\r\n", desc);
+    LogMessage(temp);
 }
 
 void LoadPython() {
@@ -253,13 +398,13 @@ void LoadPython() {
     }
 
     DWORD len = GetFileSize(hFile, NULL);
-    char* data = (char*)malloc(len + 1);
+    char* data = (char*)malloc((size_t)len + 1);
     if (data == NULL) {
         LogMessage("Failure reading data\r\n");
         return;
     }
 
-    memset(data, 0, len + 1);
+    memset(data, 0, (size_t)len + 1);
     if (!ReadFile(hFile, data, len, NULL, NULL)) {
         LogMessage("Unable to read data\r\n");
         return;

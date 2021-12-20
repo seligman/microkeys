@@ -1,5 +1,7 @@
 # MicroKeys
 
+![](images/quick_run.gif)
+
 This is a *work in progress*.
 
 Right now this is a very simple proof-of-concept of embedding MicroPython in a Win32 GUI application.
@@ -16,9 +18,11 @@ There is much work necessary to get this even to an Alpha, not the least of whic
 - [x] Hook up decorator to allow more than one function.
 - [x] Decorator should use VK_* style values instead of a string.
 - [x] Load code from .py files.
-- [ ] Show what keys are being registered
-- [ ] Keep machine state around between keys.
-- [ ] Properly implement `keys.press` to press keys.
+- [x] Show what keys are being registered
+- [x] Keep machine state around between keys.
+- [x] Properly implement `keys.press` to press keys.
+- [ ] Add features to `keys.press`, like ctrl, shift, alt, ~ for enter, etc
+- [ ] Implement `keys.mouse` for some basic mouse features.
 - [ ] Hook up exception handling to log errors.
 - [ ] Log stdout/stderr to the application itself.
 - [ ] Some memory leak testing, fixing of all the bugs.
