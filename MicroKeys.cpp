@@ -26,15 +26,31 @@ typedef struct {
 #define MAX_KEYS 100
 key_struct _keys[MAX_KEYS];
 int _numKeys = 0;
-
+bool _handleHotkeys = true;
 
 ATOM MyRegisterClass(HINSTANCE hInstance);
 BOOL InitInstance(HINSTANCE, int);
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
+void DoEvents();
 INT_PTR CALLBACK About(HWND, UINT, WPARAM, LPARAM);
 void Resize(HWND hWnd);
 void LogMessage(const char* msg);
 void LoadPython();
+void WaitForKeyboard();
+
+void DoEvents() {
+    _handleHotkeys = false;
+    MSG msg;
+    while (PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE)) {
+        if (GetMessage(&msg, NULL, 0, 0)) {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        } else {
+            break;
+        }
+    }
+    _handleHotkeys = true;
+}
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine, _In_ int nCmdShow) {
     LoadStringW(hInstance, IDS_APP_TITLE, _szTitle, MAX_LOADSTRING);
@@ -74,7 +90,6 @@ ATOM MyRegisterClass(HINSTANCE hInstance){
     wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW+1);
     wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_MICROKEYS);
     wcex.lpszClassName = _szWindowClass;
-    wcex.hIconSm = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
     return RegisterClassExW(&wcex);
 }
@@ -170,10 +185,11 @@ void Resize(HWND hWnd) {
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_HOTKEY:
-        if ((int)wParam <= _numKeys && wParam > 0) {
+        if (_handleHotkeys && (int)wParam <= _numKeys && wParam > 0) {
             char temp[1000];
             sprintf_s(temp, "Keypress of %s detected\r\n", _keys[wParam - 1].desc);
             LogMessage(temp);
+            WaitForKeyboard();
             run_fun(_keys[wParam - 1].fun);
         }
         return 0;
@@ -242,40 +258,53 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
     return (INT_PTR)FALSE;
 }
 
-extern "C" void keys_press_invoke(const char* msg) {
-    char temp[1000];
-    sprintf_s(temp, "keys.press('%s')\r\n", msg);
-    LogMessage(temp);
-
+void WaitForKeyboard() {
     for (int bail = 0; bail < 50; bail++) {
-        BYTE code[] = {
-            VK_LWIN, VK_RWIN,
-            VK_RSHIFT, VK_LSHIFT,
-            VK_LMENU, VK_RMENU,
-            VK_LCONTROL, VK_RCONTROL,
-            0,
-        };
         bool hit = false;
-        for (BYTE* cur = code; *cur; cur++) {
-            if (GetAsyncKeyState(*cur) & 0x8000 > 0) {
+        for (int vk = 0x08; vk <= 0xC0; vk++) {
+            if ((GetAsyncKeyState(vk) & 0x8000) == 0x8000) {
                 hit = true;
                 break;
             }
         }
         if (hit) {
             Sleep(100);
+            DoEvents();
         } else {
             break;
         }
     }
+}
+
+extern "C" void keys_press_invoke(const char* msg) {
+    char temp[1000];
+    sprintf_s(temp, "keys.press('%s')\r\n", msg);
+    LogMessage(temp);
+
+    DoEvents();
 
     for (const char* cur = msg; *cur; cur++) {
-        SHORT vk = VkKeyScanA(*cur);
+        if (cur != msg) {
+            Sleep(20);
+            DoEvents();
+        }
+
+        SHORT vk;
+        switch (*cur) {
+        case '\n':
+            vk = VkKeyScanA(VK_RETURN);
+            break;
+        default:
+            vk = VkKeyScanA(*cur);
+            break;
+        }
         UINT scanCode = MapVirtualKeyA(vk, 2);
         UINT extended = 0;
+
         if (scanCode == 0) {
             extended = KEYEVENTF_EXTENDEDKEY;
         }
+
         scanCode = MapVirtualKeyA(vk, 0);
         bool shift = (vk & 0x100) != 0;
         bool ctrl = (vk & 0x200) != 0;
@@ -289,7 +318,6 @@ extern "C" void keys_press_invoke(const char* msg) {
         if (alt) { keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0); }
         if (ctrl) { keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0); }
         if (shift) { keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, 0); }
-        Sleep(20);
     }
 }
 

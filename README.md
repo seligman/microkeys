@@ -21,13 +21,15 @@ There is much work necessary to get this even to an Alpha, not the least of whic
 - [x] Show what keys are being registered
 - [x] Keep machine state around between keys.
 - [x] Properly implement `keys.press` to press keys.
+- [x] Don't stall out the GUI message loop while doing work.
+- [ ] Allow a list in the `@key` decorator to trigger off a sequence
 - [ ] Add features to `keys.press`, like ctrl, shift, alt, ~ for enter, etc
-- [ ] Implement `keys.mouse` for some basic mouse features.
+- [ ] Implement `mouse.click` and such for some basic mouse features.
 - [ ] Hook up exception handling to log errors.
 - [ ] Log stdout/stderr to the application itself.
 - [ ] Some memory leak testing, fixing of all the bugs.
 - [ ] Improve UI.
-- [ ] Documentation.
+- [ ] Documentation, including a mock `keys` package to make development easier.
 - [ ] Make the "embed as a library" changes to MicroPython something that can be merged back into that project.
-- [ ] Clipboard helper functions of some sort.
+- [ ] Clipboard helper functions like `clip.copy` and `clip.paste` of some sort.
 - [ ] Other functions as necessary to ease macros.
