@@ -16,6 +16,7 @@
 **/bin/
 **/obj/
 *.user
+*.aps
 Debug
 Release
 

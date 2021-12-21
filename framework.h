@@ -8,3 +8,4 @@
 #include <memory.h>
 #include <tchar.h>
 #include <cstdio>
+#include "version.h"
