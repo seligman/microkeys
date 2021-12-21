@@ -3,6 +3,8 @@
 import subprocess
 import os
 
+TARGET_TAG="tags/v1.17"
+
 
 def run(cmd):
     print("> " + cmd)
@@ -11,15 +13,24 @@ def run(cmd):
 
 def patch_wrapper(fix):
     fn = fix(None)
+
+    data = subprocess.check_output(["git", "show", TARGET_TAG + ":" + fn])
+    data = data.decode("utf-8")
+    data = data.replace("\r\n", "\n")
+    data = fix(data)
+
     fn = fn.split("/")
     fn = os.path.join(*fn)
-    print(f"Patching {fn}")
-    run(f'git restore "{fn}"')
-    with open(fn, "rt", newline="") as f:
-        data = f.read()
-    data = fix(data)
-    with open(fn, "wt", newline="") as f:
-        f.write(data)
+
+    with open(fn, "rt", newline="", encoding="utf-8") as f:
+        on_disc = f.read()
+
+    if on_disc == data:
+        print(f"Skipping {fn}, already up to date")
+    else:
+        print(f"Patching {fn}")
+        with open(fn, "wt", newline="", encoding="utf-8") as f:
+            f.write(data)
 
 
 def fix_project(data):
@@ -31,13 +42,13 @@ def fix_project(data):
         '<ConfigurationType>StaticLibrary</ConfigurationType>',
     )
 
-    data = data.split("\r\n")
+    data = data.split("\n")
     todo = []
     done = {}
     for i, line in enumerate(data):
         if "<ItemGroup>" in line and not done.get("py_module", False):
             done["py_module"] = True
-            todo.append((i + 1, '<ClCompile Include="..\..\..\py_module.c" />'))
+            todo.append((i + 1, r'    <ClCompile Include="..\..\..\py_module.c" />'))
     todo.sort(reverse=True)
     for i, line in todo:
         data.insert(i, line)
@@ -123,7 +134,7 @@ def main():
         print("MicroPython folder doesn't exist, grabbing...")
         run("git clone git@github.com:micropython/micropython.git")
         os.chdir("micropython")
-        run("git checkout tags/v1.17")
+        run("git checkout " + TARGET_TAG)
     else:
         print("Already have MicroPython")
         os.chdir("micropython")
