@@ -15,7 +15,6 @@ WCHAR _szTitle[MAX_LOADSTRING];
 WCHAR _szWindowClass[MAX_LOADSTRING];
 
 HWND _hWndMain;
-HWND _hWndTest;
 HWND _hWndEdit;
 
 typedef struct {
@@ -107,8 +106,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow) {
       return FALSE;
    }
 
-   _hWndTest = CreateWindowEx(WS_EX_CLIENTEDGE, _T("Button"), _T("Load Python"),
-       WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, _hWndMain, NULL, NULL, NULL);
    _hWndEdit = CreateWindowEx(WS_EX_CLIENTEDGE, _T("Edit"), _T(""),
        WS_CHILD | WS_VISIBLE | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_HSCROLL, 0, 20, 200,
        200, _hWndMain, NULL, NULL, NULL);
@@ -125,6 +122,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow) {
 
    ShowWindow(_hWndMain, nCmdShow);
    UpdateWindow(_hWndMain);
+
+   LoadPython();
 
    return TRUE;
 }
@@ -159,26 +158,14 @@ void LogMessage(const char* msg) {
 }
 
 
-#define LOAD_PYTHON_HEIGHT 25
-#define LOAD_PYTHON_WIDTH 120
-#define LOAD_PYTHON_VERT_MARGIN 5
-#define LOAD_PYTHON_HORZ_MARGIN 5
-
 void Resize(HWND hWnd) {
     RECT rt;
     GetClientRect(hWnd, &rt);
-    MoveWindow(_hWndTest, 
-        LOAD_PYTHON_HORZ_MARGIN + rt.left,
-        rt.top + LOAD_PYTHON_VERT_MARGIN,
-        LOAD_PYTHON_WIDTH,
-        LOAD_PYTHON_HEIGHT,
-        TRUE);
-    int topDist = LOAD_PYTHON_HEIGHT + (LOAD_PYTHON_VERT_MARGIN * 2);
     MoveWindow(_hWndEdit, 
         rt.left, 
-        rt.top + topDist, 
+        rt.top, 
         rt.right - rt.left, 
-        rt.bottom - rt.top - topDist, 
+        rt.bottom - rt.top, 
         TRUE);
 }
 
@@ -196,16 +183,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
     case WM_COMMAND:
         {
-            int cmd = HIWORD(wParam);
-            switch (cmd) {
-            case BN_CLICKED:
-                if ((HWND)lParam == _hWndTest) {
-                    _numKeys = 0;
-                    LoadPython();
-                }
-                break;
-            }
-
             int wmId = LOWORD(wParam);
             switch (wmId)
             {
@@ -420,6 +397,12 @@ extern "C" void key_press_store_fun(int vk, void* fun) {
 }
 
 void LoadPython() {
+    for (int i = 0; i < _numKeys; i++) {
+        UnregisterHotKey(_hWndMain, i + 1);
+    }
+    _numKeys = 0;
+    // TODO: Need to clean up memory from any previous runs.
+
     HANDLE hFile = CreateFile(_T("MicroKeys.py"), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
     if (hFile == INVALID_HANDLE_VALUE) {
         LogMessage("Unable to open MicroKeys.py\r\n");
