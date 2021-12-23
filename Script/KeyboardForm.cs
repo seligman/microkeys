@@ -9,12 +9,14 @@ namespace Script
 {
     class KeyboardForm : Form
     {
+        bool ShowFunctionKeyRow = false;
         Timer _timer;
         DateTime _started;
         List<Script> _script;
 
         List<Script> GetScript(int i)
         {
+            /*
             if (i == 0)
             {
                 return Script.FollowScript(50,
@@ -29,6 +31,7 @@ namespace Script
                     ">enter"
                 );
             }
+            */
 
             return null;
         }
@@ -51,6 +54,8 @@ namespace Script
             _timer.Tick += Timer_Tick;
             Width = 1000;
             DoubleBuffered = true;
+            ControlBox = Program.ShowTitleBars;
+            StartPosition = FormStartPosition.Manual;
 
             for (int i = 0; ; i++)
             {
@@ -62,23 +67,24 @@ namespace Script
                 WinAPI.RegisterHotKey(Handle, i + 1, 0, (uint)WinAPI.KeyCode.F1 + (uint)i);
             }
 
-            /*
-            AddKey("esc", vk: WinAPI.KeyCode.Escape);
-            AddKey("f1", vk: WinAPI.KeyCode.F1);
-            AddKey("f2", vk: WinAPI.KeyCode.F2);
-            AddKey("f3", vk: WinAPI.KeyCode.F3);
-            AddKey("f4", vk: WinAPI.KeyCode.F4);
-            AddKey("f5", vk: WinAPI.KeyCode.F5);
-            AddKey("f6", vk: WinAPI.KeyCode.F6);
-            AddKey("f7", vk: WinAPI.KeyCode.F7);
-            AddKey("f8", vk: WinAPI.KeyCode.F8);
-            AddKey("f9", vk: WinAPI.KeyCode.F9);
-            AddKey("f10", vk: WinAPI.KeyCode.F10);
-            AddKey("f11", vk: WinAPI.KeyCode.F11);
-            AddKey("f12", vk: WinAPI.KeyCode.F12);
-            AddKey("del", width: -1, vk: WinAPI.KeyCode.Delete);
-            AddRow();
-            */
+            if (ShowFunctionKeyRow)
+            {
+                AddKey("esc", vk: WinAPI.KeyCode.Escape);
+                AddKey("f1", vk: WinAPI.KeyCode.F1);
+                AddKey("f2", vk: WinAPI.KeyCode.F2);
+                AddKey("f3", vk: WinAPI.KeyCode.F3);
+                AddKey("f4", vk: WinAPI.KeyCode.F4);
+                AddKey("f5", vk: WinAPI.KeyCode.F5);
+                AddKey("f6", vk: WinAPI.KeyCode.F6);
+                AddKey("f7", vk: WinAPI.KeyCode.F7);
+                AddKey("f8", vk: WinAPI.KeyCode.F8);
+                AddKey("f9", vk: WinAPI.KeyCode.F9);
+                AddKey("f10", vk: WinAPI.KeyCode.F10);
+                AddKey("f11", vk: WinAPI.KeyCode.F11);
+                AddKey("f12", vk: WinAPI.KeyCode.F12);
+                AddKey("del", width: -1, vk: WinAPI.KeyCode.Delete);
+                AddRow();
+            }
 
             AddKey("`", vk: WinAPI.KeyCode.Oem3);
             AddKeys("1", "2", "3", "4", "5", "6", "7", "8", "9", "0");
@@ -115,9 +121,17 @@ namespace Script
             AddKey("", width: -1, vk: WinAPI.KeyCode.Space);
             AddKey("alt", width: 1.2f, vk: WinAPI.KeyCode.RMenu);
             AddKey("ctrl", width: 1.2f, vk: WinAPI.KeyCode.RControl);
+            AddKey("", height: 0.5f, holdPos: true, hide: true, vk: WinAPI.KeyCode.None);
+            AddKey("left", height: 0.5f, offset: 0.5f, vk: WinAPI.KeyCode.Left);
+            AddKey("up", height: 0.5f, holdPos: true, vk: WinAPI.KeyCode.Up);
+            AddKey("down", height: 0.5f, offset: 0.5f, vk: WinAPI.KeyCode.Down);
+            AddKey("", height: 0.5f, holdPos: true, hide: true, vk: WinAPI.KeyCode.None);
+            AddKey("right", height: 0.5f, offset: 0.5f, vk: WinAPI.KeyCode.Right);
             AddRow();
 
             ExpandKeys();
+
+            Show();
         }
 
         void Timer_Tick(object sender, EventArgs e)
@@ -147,6 +161,13 @@ namespace Script
                 Invalidate();
                 _script.RemoveAt(0);
             }
+        }
+
+        public void RunScript(List<Script> script)
+        {
+            _started = DateTime.Now + TimeSpan.FromSeconds(2);
+            _script = script;
+            _timer.Enabled = true;
         }
 
         protected override void WndProc(ref Message m)
@@ -189,6 +210,8 @@ namespace Script
             public WinAPI.KeyCode VK;
             public RectangleF Rect;
             public bool Down;
+            public bool Hide;
+            public bool HoldPos;
         }
 
         List<Key> _keys = new List<Key>();
@@ -206,7 +229,7 @@ namespace Script
             }
         }
 
-        void AddKey(string key, float width = 1f, WinAPI.KeyCode vk = WinAPI.KeyCode.None)
+        void AddKey(string key, float width = 1f, WinAPI.KeyCode vk = WinAPI.KeyCode.None, float height = 1f, bool holdPos = false, float offset = 0f, bool hide = false)
         {
             if (key.Length == 1 && ((key.ToUpper()[0] >= 'A' && key.ToUpper()[0] <= 'Z') || (key[0] >= '0' && key[0] <= '9')))
             {
@@ -217,14 +240,21 @@ namespace Script
             {
                 Desc = key,
                 X = _x,
-                Y = _y,
+                Y = _y + offset,
                 Width = width,
-                Height = 1f,
+                Height = height,
                 VK = vk,
                 Down = false,
+                Hide = hide,
+                HoldPos = holdPos,
             };
-            _x += width;
-            _width = Math.Max(_width, _x);
+
+            if (!holdPos)
+            {
+                _x += width;
+                _width = Math.Max(_width, _x);
+            }
+
             _keys.Add(temp);
         }
 
@@ -242,9 +272,9 @@ namespace Script
                 float usedWidth = 0;
                 foreach (var key in _keys)
                 {
-                    if (key.Y == y)
+                    if (Math.Floor(key.Y) == Math.Floor(y))
                     {
-                        if (key.Width >= 0)
+                        if (key.Width >= 0 && !key.HoldPos)
                         {
                             usedWidth += key.Width;
                         }
@@ -254,14 +284,17 @@ namespace Script
                 float x = 0;
                 foreach (var key in _keys)
                 {
-                    if (key.Y == y)
+                    if (Math.Floor(key.Y) == Math.Floor(y))
                     {
                         key.X = x;
                         if (key.Width < 0)
                         {
                             key.Width = _width - usedWidth;
                         }
-                        x += key.Width;
+                        if (!key.HoldPos)
+                        {
+                            x += key.Width;
+                        }
                     }
                 }
             }
@@ -275,25 +308,64 @@ namespace Script
         void KeyboardForm_Paint(object sender, PaintEventArgs e)
         {
             var g = e.Graphics;
-            using (var font = new Font("Segoe UI", 10))
+            g.Clear(Color.Black);
+
+            using (var fontSegoe = new Font("Segoe UI", 10))
+            using (var fontHolo = new Font("HoloLens MDL2 Assets", 12))
             using (var sf = (StringFormat)StringFormat.GenericDefault.Clone())
+            using (var keyBack = new SolidBrush(Color.FromArgb(50, 50, 50)))
+            using (var keyDown = new SolidBrush(Color.FromArgb(225, 255, 255)))
             {
                 sf.Alignment = StringAlignment.Center;
                 sf.LineAlignment = StringAlignment.Center;
                 foreach (var key in _keys)
                 {
-                    var rt = new RectangleF(
-                        key.X / _width * ClientSize.Width,
-                        key.Y / _height * ClientSize.Height,
-                        key.Width / _width * ClientSize.Width,
-                        key.Height / _height * ClientSize.Height);
-                    key.Rect = rt;
-                    if (key.Down)
+                    if (!key.Hide)
                     {
-                        g.FillRectangle(Brushes.Black, rt.X, rt.Y, rt.Width, rt.Height);
+                        var rt = new RectangleF(
+                            key.X / _width * ClientSize.Width,
+                            key.Y / _height * ClientSize.Height,
+                            key.Width / _width * ClientSize.Width,
+                            key.Height / _height * ClientSize.Height);
+                        key.Rect = rt;
+                        rt.Inflate(-1, -1);
+
+                        var font = fontSegoe;
+                        var desc = key.Desc;
+                        switch (desc)
+                        {
+                            case "<-":
+                                desc = "\u2190";
+                                break;
+                            case "left":
+                                desc = "\u02c2";
+                                break;
+                            case "right":
+                                desc = "\u02c3";
+                                break;
+                            case "up":
+                                desc = "\u02c4";
+                                break;
+                            case "down":
+                                desc = "\u02c5";
+                                break;
+                            case "win":
+                                font = fontHolo;
+                                desc = "\ue782";
+                                break;
+                        }
+
+                        if (key.Down)
+                        {
+                            g.FillRectangle(keyDown, rt.X, rt.Y, rt.Width, rt.Height);
+                            g.DrawString(desc, font, keyBack, rt, sf);
+                        }
+                        else
+                        {
+                            g.FillRectangle(keyBack, rt.X, rt.Y, rt.Width, rt.Height);
+                            g.DrawString(desc, font, keyDown, rt, sf);
+                        }
                     }
-                    g.DrawRectangle(Pens.Red, rt.X, rt.Y, rt.Width, rt.Height);
-                    g.DrawString(key.Desc, font, Brushes.Blue, rt, sf);
                 }
             }
         }
