@@ -6,9 +6,64 @@ namespace Script
 {
     class Script
     {
-        public static List<Script> Get()
+        public string Key;
+        public bool Down;
+        public int At;
+
+        public static List<Script> FollowScript(int delay, params string[] keys)
         {
-            var ret = new List<Script>();
+            List<Script> ret = new List<Script>();
+            int at = 0;
+            foreach (var cur in keys)
+            {
+                if (cur.Substring(0, 1) == "'")
+                {
+                    for (int i = 1; i < cur.Length; i++)
+                    {
+                        ret.Add(new Script()
+                        {
+                            Key = cur.Substring(i, 1),
+                            Down = true,
+                            At = at,
+                        });
+                        at += delay;
+                        ret.Add(new Script()
+                        {
+                            Key = cur.Substring(i, 1),
+                            Down = false,
+                            At = at,
+                        });
+                        at += delay;
+                    }
+                }
+                else if (cur.Substring(0, 1) == ">")
+                {
+                    ret.Add(new Script()
+                    {
+                        Key = cur.Substring(1),
+                        Down = true,
+                        At = at,
+                    });
+                    at += delay;
+                    ret.Add(new Script()
+                    {
+                        Key = cur.Substring(1),
+                        Down = false,
+                        At = at,
+                    });
+                    at += delay;
+                }
+                else
+                {
+                    ret.Add(new Script()
+                    {
+                        Key = cur.Substring(1),
+                        Down = cur.Substring(0, 1) == "+",
+                        At = at,
+                    });
+                    at += delay;
+                }
+            }
             return ret;
         }
     }

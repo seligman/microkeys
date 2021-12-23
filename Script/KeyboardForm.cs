@@ -9,60 +9,28 @@ namespace Script
 {
     class KeyboardForm : Form
     {
-        protected override void WndProc(ref Message m)
+        Timer _timer;
+        DateTime _started;
+        List<Script> _script;
+
+        List<Script> GetScript(int i)
         {
-            if (m.Msg == 0x312)
+            if (i == 0)
             {
-                Debug.WriteLine("0x{0:X} 0x{1:X08}", m.WParam.ToInt32(), m.LParam.ToInt32());
+                return Script.FollowScript(50,
+                    "+win",
+                    "'r",
+                    "-win",
+                    "'https",
+                    "+shift",
+                    "';",
+                    "-shift",
+                    "'//www.google.com",
+                    ">enter"
+                );
             }
-            base.WndProc(ref m);
-        }
 
-        class Key
-        {
-            public string Desc;
-            public float X;
-            public float Y;
-            public float Width;
-            public float Height;
-        }
-
-        List<Key> _keys = new List<Key>();
-
-        float _y = 0;
-        float _x = 0;
-        float _width = 0;
-        float _height = 0;
-
-        void AddKeys(params string[] keys)
-        {
-            foreach (var key in keys)
-            {
-                AddKey(key);
-            }
-        }
-
-        void AddKey(string key, float width = 1f, WinAPI.KeyCode vk = WinAPI.KeyCode.None)
-        {
-            // TODO: Use VK
-            Key temp = new Key
-            {
-                Desc = key,
-                X = _x,
-                Y = _y,
-                Width = width,
-                Height = 1f,
-            };
-            _x += width;
-            _width = Math.Max(_width, _x);
-            _keys.Add(temp);
-        }
-
-        void AddRow()
-        {
-            _y++;
-            _x = 0;
-            _height = Math.Max(_height, _y);
+            return null;
         }
 
         public KeyboardForm()
@@ -75,7 +43,24 @@ namespace Script
             */
             Paint += KeyboardForm_Paint;
             Resize += KeyboardForm_Resize;
+            _timer = new Timer
+            {
+                Enabled = false,
+                Interval = 10,
+            };
+            _timer.Tick += Timer_Tick;
             Width = 1000;
+            DoubleBuffered = true;
+
+            for (int i = 0; ; i++)
+            {
+                var temp = GetScript(i);
+                if (temp == null)
+                {
+                    break;
+                }
+                WinAPI.RegisterHotKey(Handle, i + 1, 0, (uint)WinAPI.KeyCode.F1 + (uint)i);
+            }
 
             /*
             AddKey("esc", vk: WinAPI.KeyCode.Escape);
@@ -135,6 +120,121 @@ namespace Script
             ExpandKeys();
         }
 
+        void Timer_Tick(object sender, EventArgs e)
+        {
+            if (_script.Count == 0)
+            {
+                _timer.Enabled = false;
+                return;
+            }
+
+            int cur = (int)((DateTime.Now - _started).TotalMilliseconds);
+            if (cur >= _script[0].At)
+            {
+                bool found = false;
+                foreach (var key in _keys)
+                {
+                    if (key.Desc == _script[0].Key)
+                    {
+                        if (!found)
+                        {
+                            found = true;
+                            WinAPI.keybd_event((byte)key.VK, 0, _script[0].Down ? 0 : WinAPI.KeybdEventFlag.KeyUp, 0);
+                        }
+                        key.Down = _script[0].Down;
+                    }
+                }
+                Invalidate();
+                _script.RemoveAt(0);
+            }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x312)
+            {
+                bool found = false;
+                for (int i = 0; ; i++)
+                {
+                    var temp = GetScript(i);
+                    if (temp == null)
+                    {
+                        break;
+                    }
+                    if ((int)m.WParam == (i + 1))
+                    {
+                        found = true;
+                        _started = DateTime.Now + TimeSpan.FromMilliseconds(500);
+                        _script = temp;
+                        _timer.Enabled = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    Debug.WriteLine("0x{0:X} 0x{1:X08}", m.WParam.ToInt32(), m.LParam.ToInt32());
+                }
+            }
+            base.WndProc(ref m);
+        }
+
+        class Key
+        {
+            public string Desc;
+            public float X;
+            public float Y;
+            public float Width;
+            public float Height;
+            public WinAPI.KeyCode VK;
+            public RectangleF Rect;
+            public bool Down;
+        }
+
+        List<Key> _keys = new List<Key>();
+
+        float _y = 0;
+        float _x = 0;
+        float _width = 0;
+        float _height = 0;
+
+        void AddKeys(params string[] keys)
+        {
+            foreach (var key in keys)
+            {
+                AddKey(key);
+            }
+        }
+
+        void AddKey(string key, float width = 1f, WinAPI.KeyCode vk = WinAPI.KeyCode.None)
+        {
+            if (key.Length == 1 && ((key.ToUpper()[0] >= 'A' && key.ToUpper()[0] <= 'Z') || (key[0] >= '0' && key[0] <= '9')))
+            {
+                vk = (WinAPI.KeyCode)key.ToUpper()[0];
+            }
+
+            Key temp = new Key
+            {
+                Desc = key,
+                X = _x,
+                Y = _y,
+                Width = width,
+                Height = 1f,
+                VK = vk,
+                Down = false,
+            };
+            _x += width;
+            _width = Math.Max(_width, _x);
+            _keys.Add(temp);
+        }
+
+        void AddRow()
+        {
+            _y++;
+            _x = 0;
+            _height = Math.Max(_height, _y);
+        }
+
         void ExpandKeys()
         {
             for (float y = 0; y < _height; y++)
@@ -187,6 +287,11 @@ namespace Script
                         key.Y / _height * ClientSize.Height,
                         key.Width / _width * ClientSize.Width,
                         key.Height / _height * ClientSize.Height);
+                    key.Rect = rt;
+                    if (key.Down)
+                    {
+                        g.FillRectangle(Brushes.Black, rt.X, rt.Y, rt.Width, rt.Height);
+                    }
                     g.DrawRectangle(Pens.Red, rt.X, rt.Y, rt.Width, rt.Height);
                     g.DrawString(key.Desc, font, Brushes.Blue, rt, sf);
                 }
