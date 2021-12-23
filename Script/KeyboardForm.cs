@@ -32,8 +32,9 @@ namespace Script
             }
         }
 
-        void AddKey(string key, float width = 1f)
+        void AddKey(string key, float width = 1f, WinAPI.KeyCode vk = WinAPI.KeyCode.None)
         {
+            // TODO: Use VK
             Key temp = new Key
             {
                 Desc = key,
@@ -60,59 +61,57 @@ namespace Script
             Resize += KeyboardForm_Resize;
             Width = 1000;
 
-            /*
-            AddKey("esc");
-            AddKey("f1");
-            AddKey("f2");
-            AddKey("f3");
-            AddKey("f4");
-            AddKey("f5");
-            AddKey("f6");
-            AddKey("f7");
-            AddKey("f8");
-            AddKey("f9");
-            AddKey("f10");
-            AddKey("f11");
-            AddKey("f12");
-            AddKey("del", -1);
+            AddKey("esc", vk: WinAPI.KeyCode.Escape);
+            AddKey("f1", vk: WinAPI.KeyCode.F1);
+            AddKey("f2", vk: WinAPI.KeyCode.F2);
+            AddKey("f3", vk: WinAPI.KeyCode.F3);
+            AddKey("f4", vk: WinAPI.KeyCode.F4);
+            AddKey("f5", vk: WinAPI.KeyCode.F5);
+            AddKey("f6", vk: WinAPI.KeyCode.F6);
+            AddKey("f7", vk: WinAPI.KeyCode.F7);
+            AddKey("f8", vk: WinAPI.KeyCode.F8);
+            AddKey("f9", vk: WinAPI.KeyCode.F9);
+            AddKey("f10", vk: WinAPI.KeyCode.F10);
+            AddKey("f11", vk: WinAPI.KeyCode.F11);
+            AddKey("f12", vk: WinAPI.KeyCode.F12);
+            AddKey("del", width: -1, vk: WinAPI.KeyCode.Delete);
             AddRow();
-            */
 
-            AddKey("`");
+            AddKey("`", vk: WinAPI.KeyCode.OemBackTab); // TODO
             AddKeys("1", "2", "3", "4", "5", "6", "7", "8", "9", "0");
-            AddKey("-");
-            AddKey("=");
-            AddKey("<-", 1.33f);
+            AddKey("-", vk: WinAPI.KeyCode.OemMinus);
+            AddKey("=", vk: WinAPI.KeyCode.Equal);
+            AddKey("<-", width: 1.33f, vk: WinAPI.KeyCode.Backspace);
             AddRow();
 
-            AddKey("tab", -1);
+            AddKey("tab", width: -1, vk: WinAPI.KeyCode.Tab);
             AddKeys("q", "w", "e", "r", "t", "y", "u", "i", "o", "p");
-            AddKey("[");
-            AddKey("]");
-            AddKey("\\");
+            AddKey("[", vk: WinAPI.KeyCode.None); // TODO
+            AddKey("]", vk: WinAPI.KeyCode.None); // TODO
+            AddKey("\\", vk: WinAPI.KeyCode.None); // TODO
             AddRow();
 
-            AddKey("caps", 1.66f);
+            AddKey("caps", width: 1.66f, vk: WinAPI.KeyCode.None); // TODO
             AddKeys("a", "s", "d", "f", "g", "h", "j", "k", "l");
-            AddKey(";");
-            AddKey("'");
-            AddKey("enter", -1);
+            AddKey(";", vk: WinAPI.KeyCode.None); // TODO
+            AddKey("'", vk: WinAPI.KeyCode.None); // TODO
+            AddKey("enter", width: -1, vk: WinAPI.KeyCode.Return);
             AddRow();
 
-            AddKey("shift", 2f);
+            AddKey("shift", 2f, vk: WinAPI.KeyCode.Shift);
             AddKeys("z", "x", "c", "v", "b", "n", "m");
-            AddKey(",");
-            AddKey(".");
-            AddKey("/");
-            AddKey("shift", -1);
+            AddKey(",", vk: WinAPI.KeyCode.None); // TODO
+            AddKey(".", vk: WinAPI.KeyCode.None); // TODO
+            AddKey("/", vk: WinAPI.KeyCode.None); // TODO
+            AddKey("shift", width: -1, vk: WinAPI.KeyCode.Shift);
             AddRow();
 
-            AddKey("ctrl", 1.2f);
-            AddKey("win");
-            AddKey("alt", 1.2f);
-            AddKey("", -1);
-            AddKey("alt", 1.2f);
-            AddKey("ctrl", 1.2f);
+            AddKey("ctrl", width: 1.2f, vk: WinAPI.KeyCode.Control);
+            AddKey("win", vk: WinAPI.KeyCode.None); // TODO
+            AddKey("alt", width: 1.2f, vk: WinAPI.KeyCode.None); // TODO
+            AddKey("", width: -1, vk: WinAPI.KeyCode.Space);
+            AddKey("alt", width: 1.2f, vk: WinAPI.KeyCode.None); // TODO
+            AddKey("ctrl", width: 1.2f, vk: WinAPI.KeyCode.None); // TODO
             AddRow();
 
             ExpandKeys();
