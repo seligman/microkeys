@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Text;
 using System.Windows.Forms;
@@ -8,6 +9,15 @@ namespace Script
 {
     class KeyboardForm : Form
     {
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x312)
+            {
+                Debug.WriteLine("0x{0:X} 0x{1:X08}", m.WParam.ToInt32(), m.LParam.ToInt32());
+            }
+            base.WndProc(ref m);
+        }
+
         class Key
         {
             public string Desc;
@@ -57,10 +67,17 @@ namespace Script
 
         public KeyboardForm()
         {
+            /*
+            for (int i = 1; i < 256; i++)
+            {
+                WinAPI.RegisterHotKey(Handle, i, 0, (uint)i);
+            }
+            */
             Paint += KeyboardForm_Paint;
             Resize += KeyboardForm_Resize;
             Width = 1000;
 
+            /*
             AddKey("esc", vk: WinAPI.KeyCode.Escape);
             AddKey("f1", vk: WinAPI.KeyCode.F1);
             AddKey("f2", vk: WinAPI.KeyCode.F2);
@@ -76,8 +93,9 @@ namespace Script
             AddKey("f12", vk: WinAPI.KeyCode.F12);
             AddKey("del", width: -1, vk: WinAPI.KeyCode.Delete);
             AddRow();
+            */
 
-            AddKey("`", vk: WinAPI.KeyCode.OemBackTab); // TODO
+            AddKey("`", vk: WinAPI.KeyCode.Oem3);
             AddKeys("1", "2", "3", "4", "5", "6", "7", "8", "9", "0");
             AddKey("-", vk: WinAPI.KeyCode.OemMinus);
             AddKey("=", vk: WinAPI.KeyCode.Equal);
@@ -86,32 +104,32 @@ namespace Script
 
             AddKey("tab", width: -1, vk: WinAPI.KeyCode.Tab);
             AddKeys("q", "w", "e", "r", "t", "y", "u", "i", "o", "p");
-            AddKey("[", vk: WinAPI.KeyCode.None); // TODO
-            AddKey("]", vk: WinAPI.KeyCode.None); // TODO
-            AddKey("\\", vk: WinAPI.KeyCode.None); // TODO
+            AddKey("[", vk: WinAPI.KeyCode.Oem4);
+            AddKey("]", vk: WinAPI.KeyCode.Oem6);
+            AddKey("\\", vk: WinAPI.KeyCode.Oem5);
             AddRow();
 
-            AddKey("caps", width: 1.66f, vk: WinAPI.KeyCode.None); // TODO
+            AddKey("caps", width: 1.66f, vk: WinAPI.KeyCode.Capital);
             AddKeys("a", "s", "d", "f", "g", "h", "j", "k", "l");
-            AddKey(";", vk: WinAPI.KeyCode.None); // TODO
-            AddKey("'", vk: WinAPI.KeyCode.None); // TODO
+            AddKey(";", vk: WinAPI.KeyCode.Oem1);
+            AddKey("'", vk: WinAPI.KeyCode.Oem7);
             AddKey("enter", width: -1, vk: WinAPI.KeyCode.Return);
             AddRow();
 
             AddKey("shift", 2f, vk: WinAPI.KeyCode.Shift);
             AddKeys("z", "x", "c", "v", "b", "n", "m");
-            AddKey(",", vk: WinAPI.KeyCode.None); // TODO
-            AddKey(".", vk: WinAPI.KeyCode.None); // TODO
-            AddKey("/", vk: WinAPI.KeyCode.None); // TODO
+            AddKey(",", vk: WinAPI.KeyCode.OemComma);
+            AddKey(".", vk: WinAPI.KeyCode.OemPeriod);
+            AddKey("/", vk: WinAPI.KeyCode.Oem2);
             AddKey("shift", width: -1, vk: WinAPI.KeyCode.Shift);
             AddRow();
 
-            AddKey("ctrl", width: 1.2f, vk: WinAPI.KeyCode.Control);
-            AddKey("win", vk: WinAPI.KeyCode.None); // TODO
-            AddKey("alt", width: 1.2f, vk: WinAPI.KeyCode.None); // TODO
+            AddKey("ctrl", width: 1.2f, vk: WinAPI.KeyCode.LControl);
+            AddKey("win", vk: WinAPI.KeyCode.LWin);
+            AddKey("alt", width: 1.2f, vk: WinAPI.KeyCode.LMenu);
             AddKey("", width: -1, vk: WinAPI.KeyCode.Space);
-            AddKey("alt", width: 1.2f, vk: WinAPI.KeyCode.None); // TODO
-            AddKey("ctrl", width: 1.2f, vk: WinAPI.KeyCode.None); // TODO
+            AddKey("alt", width: 1.2f, vk: WinAPI.KeyCode.RMenu);
+            AddKey("ctrl", width: 1.2f, vk: WinAPI.KeyCode.RControl);
             AddRow();
 
             ExpandKeys();
