@@ -30,22 +30,26 @@ namespace Script
 
         void RunTest_Click(object sender, EventArgs e)
         {
-            var script = Script.FollowScript(250,
-                 "'This is a test! 12+12=24?"
-            );
             Program.Other.BringToFront();
-            Program.Keyboard.RunScript(script);
+            Program.Keyboard.RunScript(Script.FollowScript(250,
+                 "'This is a test! 12+12=24?"
+            ));
         }
 
         void RunAltZ_Click(object sender, EventArgs e)
         {
-            var script = Script.FollowScript(250,
+            Program.Other.BringToFront();
+            Program.Keyboard.RunScript(Script.FollowScript(100,
+                "'(100 + 11) * 9"
+            ), Script.FollowScript(250,
+                "+ctrl",
+                ">a",
+                ">c",
+                "-ctrl",
                 "+alt",
                 ">z",
                 "-alt"
-            );
-            Program.Other.BringToFront();
-            Program.Keyboard.RunScript(script);
+            ));
         }
 
         void GetSizes_Click(object sender, EventArgs e)

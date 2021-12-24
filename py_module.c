@@ -1,5 +1,25 @@
 #include "py/runtime.h"
 
+/* ----- clip.copy --------------------------------------------------------- */
+// This is just here as a test/demo function, in the long term it should be removed
+char* clip_copy_invoke();
+STATIC mp_obj_t clip_copy(void) {
+    char* temp = clip_copy_invoke();
+    mp_obj_t ret = mp_obj_new_str(temp, strlen(temp));
+    free(temp);
+    return ret;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(clip_copy_obj, clip_copy);
+
+/* ----- clip.paste -------------------------------------------------------- */
+// This is just here as a test/demo function, in the long term it should be removed
+void clip_paste_invoke(const char*);
+STATIC mp_obj_t clip_paste(mp_obj_t a_obj) {
+    clip_paste_invoke(mp_obj_str_get_str(a_obj));
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(clip_paste_obj, clip_paste);
+
 /* ----- keys.add_ints ----------------------------------------------------- */
 // This is just here as a test/demo function, in the long term it should be removed
 STATIC mp_obj_t keys_add_ints(mp_obj_t a_obj, mp_obj_t b_obj) {
@@ -39,6 +59,7 @@ STATIC mp_obj_t keys_key(mp_obj_t a_obj) {
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(keys_key_obj, keys_key);
 
 /* ----- Connection Glue --------------------------------------------------- */
+/*       keys module                                                         */
 STATIC const mp_rom_map_elem_t keys_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_keys) },
     { MP_ROM_QSTR(MP_QSTR_add_ints), MP_ROM_PTR(&keys_add_ints_obj) },
@@ -124,3 +145,16 @@ const mp_obj_module_t keys_user_cmodule = {
     .globals = (mp_obj_dict_t *)&keys_module_globals,
 };
 MP_REGISTER_MODULE(MP_QSTR_keys, keys_user_cmodule, 1);
+
+/*       clip module                                                         */
+STATIC const mp_rom_map_elem_t clip_module_globals_table[] = {
+    { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_clip) },
+    { MP_ROM_QSTR(MP_QSTR_paste), MP_ROM_PTR(&clip_paste_obj) },
+    { MP_ROM_QSTR(MP_QSTR_copy), MP_ROM_PTR(&clip_copy_obj) },
+};
+STATIC MP_DEFINE_CONST_DICT(clip_module_globals, clip_module_globals_table);
+const mp_obj_module_t clip_user_cmodule = {
+    .base = { &mp_type_module },
+    .globals = (mp_obj_dict_t*)&clip_module_globals,
+};
+MP_REGISTER_MODULE(MP_QSTR_clip, clip_user_cmodule, 1);

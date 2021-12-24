@@ -31,5 +31,5 @@ There is much work necessary to get this even to an Alpha, not the least of whic
 - [ ] Improve UI.
 - [ ] Documentation, including a mock `keys` package to make development easier.
 - [ ] Make the "embed as a library" changes to MicroPython something that can be merged back into that project.
-- [ ] Clipboard helper functions like `clip.copy` and `clip.paste` of some sort.
+- [x] Clipboard helper functions like `clip.copy` and `clip.paste` of some sort.
 - [ ] Other functions as necessary to ease macros.

@@ -15,6 +15,7 @@ namespace Script
         Timer _timer;
         DateTime _started;
         List<Script> _script;
+        List<List<Script>> _scripts;
 
         List<Script> GetScript(int i)
         {
@@ -151,10 +152,20 @@ namespace Script
 
         void Timer_Tick(object sender, EventArgs e)
         {
-            if (_script.Count == 0)
+            if (_script == null || _script.Count == 0)
             {
-                _timer.Enabled = false;
-                return;
+                if (_scripts.Count == 0)
+                {
+                    _timer.Enabled = false;
+                    return;
+                }
+                else
+                {
+                    _script = _scripts[0];
+                    _scripts.RemoveAt(0);
+                    _started = DateTime.Now + TimeSpan.FromSeconds(2);
+                    return;
+                }
             }
 
             int cur = (int)((DateTime.Now - _started).TotalMilliseconds);
@@ -187,10 +198,11 @@ namespace Script
             }
         }
 
-        public void RunScript(List<Script> script)
+        public void RunScript(params List<Script>[] scripts)
         {
-            _started = DateTime.Now + TimeSpan.FromSeconds(2);
-            _script = script;
+            _started = DateTime.Now;
+            _scripts = new List<List<Script>>(scripts);
+            _script = null;
             _timer.Enabled = true;
         }
 
