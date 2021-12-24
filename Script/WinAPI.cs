@@ -395,5 +395,7 @@ namespace Script
         public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
         [DllImport("user32.dll")]
         public static extern void keybd_event(byte bVk, byte bScan, KeybdEventFlag dwFlags, uint dwExtraInfo);
+        [DllImport("user32.dll")]
+        public static extern short VkKeyScan(char ch);
     }
 }

@@ -14,8 +14,9 @@ namespace Script
 
         public ControlForm()
         {
-            AddButton("Get Sizes", GetSizes_Click);
-            AddButton("Run Alt-Z script", RunAltZ_Click);
+            AddButton("Get sizes", GetSizes_Click);
+            AddButton("Run alt-Z script", RunAltZ_Click);
+            AddButton("Run test script", RunTest_Click);
             AddButton("Close", Close_Click);
 
             ClientSize = new Size(_buttonWidth + 10, _y + 5);
@@ -27,6 +28,15 @@ namespace Script
             Show();
         }
 
+        void RunTest_Click(object sender, EventArgs e)
+        {
+            var script = Script.FollowScript(250,
+                 "'This is a test! 12+12=24?"
+            );
+            Program.Other.BringToFront();
+            Program.Keyboard.RunScript(script);
+        }
+
         void RunAltZ_Click(object sender, EventArgs e)
         {
             var script = Script.FollowScript(250,
@@ -34,8 +44,8 @@ namespace Script
                 ">z",
                 "-alt"
             );
-            Program.Keyboard.RunScript(script);
             Program.Other.BringToFront();
+            Program.Keyboard.RunScript(script);
         }
 
         void GetSizes_Click(object sender, EventArgs e)

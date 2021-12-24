@@ -10,6 +10,8 @@ namespace Script
     class KeyboardForm : Form
     {
         bool ShowFunctionKeyRow = false;
+        bool RegisterAllKeys = false;
+
         Timer _timer;
         DateTime _started;
         List<Script> _script;
@@ -38,12 +40,13 @@ namespace Script
 
         public KeyboardForm()
         {
-            /*
-            for (int i = 1; i < 256; i++)
+            if (RegisterAllKeys)
             {
-                WinAPI.RegisterHotKey(Handle, i, 0, (uint)i);
+                for (int i = 1; i < 256; i++)
+                {
+                    WinAPI.RegisterHotKey(Handle, i, 0, (uint)i);
+                }
             }
-            */
             Paint += KeyboardForm_Paint;
             Resize += KeyboardForm_Resize;
             _timer = new Timer
@@ -89,7 +92,7 @@ namespace Script
             AddKey("`", vk: WinAPI.KeyCode.Oem3);
             AddKeys("1", "2", "3", "4", "5", "6", "7", "8", "9", "0");
             AddKey("-", vk: WinAPI.KeyCode.OemMinus);
-            AddKey("=", vk: WinAPI.KeyCode.Equal);
+            AddKey("=", vk: WinAPI.KeyCode.OemPlus);
             AddKey("<-", width: 1.33f, vk: WinAPI.KeyCode.Backspace);
             AddRow();
 
@@ -134,6 +137,18 @@ namespace Script
             Show();
         }
 
+        public string GetFromVk(uint vk)
+        {
+            foreach (var cur in _keys)
+            {
+                if (cur.VK == (WinAPI.KeyCode)vk)
+                {
+                    return cur.Desc;
+                }
+            }
+            return null;
+        }
+
         void Timer_Tick(object sender, EventArgs e)
         {
             if (_script.Count == 0)
@@ -146,9 +161,18 @@ namespace Script
             if (cur >= _script[0].At)
             {
                 bool found = false;
+                var temp = _script[0].Key;
+                switch (temp)
+                {
+                    case "back": temp = "<-"; break;
+                    case "bs": temp = "<-"; break;
+                    case "backspace": temp = "<-"; break;
+                    case "control": temp = "ctrl"; break;
+                }
+
                 foreach (var key in _keys)
                 {
-                    if (key.Desc == _script[0].Key)
+                    if (key.Desc == temp)
                     {
                         if (!found)
                         {
