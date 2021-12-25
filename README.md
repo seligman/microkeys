@@ -4,9 +4,7 @@
 
 This is a *work in progress*.
 
-Right now this is a very simple proof-of-concept of embedding MicroPython in a Win32 GUI application.
-
-The long term goal is to use MicroPython as the engine for a key macro program.
+This is a very basic Windows key macro program that runs Python functions in response to key presses, using MicroPython to parse the script.  The long term goal is complete the macro language and improve the UI.
 
 To run the POC, sync this project down, then run `get_micropython.py` to sync down MicroPython and patch it to be built as a library in a windows GUI app.
 
@@ -22,7 +20,6 @@ There is much work necessary to get this even to an Alpha, not the least of whic
 - [x] Keep machine state around between keys.
 - [x] Properly implement `keys.press` to press keys.
 - [x] Don't stall out the GUI message loop while doing work.
-- [ ] Allow a list in the `@key` decorator to trigger off a sequence
 - [ ] Add features to `keys.press`, like ctrl, shift, alt, ~ for enter, etc
 - [ ] Implement `mouse.click` and such for some basic mouse features.
 - [ ] Hook up exception handling to log errors.
