@@ -7,6 +7,7 @@ using System.Windows.Forms;
 
 namespace Script
 {
+    [System.ComponentModel.DesignerCategory("Code")]
     class KeyboardForm : Form
     {
         bool ShowFunctionKeyRow = false;

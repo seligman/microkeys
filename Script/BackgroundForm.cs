@@ -5,6 +5,7 @@ using System.Windows.Forms;
 
 namespace Script
 {
+    [System.ComponentModel.DesignerCategory("Code")]
     class BackgroundForm : Form
     {
         Timer _timer;
