@@ -4,20 +4,10 @@
 
 This is a *work in progress*.
 
-This is a very basic Windows key macro program that runs Python functions in response to key presses, using MicroPython to parse the script.  The long term goal is complete the macro language and improve the UI.
+This is a key macro program for Windows that runs Python functions in response to key presses, using [MicroPython](https://micropython.org/) to parse the script.  The long term goal is complete the macro language and improve the UI.  The simple example shown above shows a formula being typed into a text box, the contents being copied to the clipboard, then the macro key is hit, causing MicroKeys to evaluate the formula and type out the answer.  More than the use of this particular macro, this is meant as an example of the potential power of having MicroPython available to respond to key presses.
 
-To run the POC, sync this project down, then run `get_micropython.py` to sync down MicroPython and patch it to be built as a library in a windows GUI app.
+Right now, if you want to run this locally, you'll need Visual Studio, along with Python 3.9+ and Git in your path.  To run the POC, sync this project down, then run `get_micropython.py` to sync down MicroPython and patch it to be built as a library in a windows GUI app.  Then you can open the VS solution, and run it.
 
-There is much work necessary to get this even to an Alpha, not the least of which:
-
-- Add features to `keys.press`, like ctrl, shift, alt, ~ for enter, etc
-- Implement `mouse.click` and such for some basic mouse features.
-- Hook up exception handling to log errors.
-- Log stdout/stderr to the application itself.
-- Some memory leak testing, fixing of all the bugs.
-- Improve UI.
-- Documentation, including a mock `keys` package to make development easier.
-- Make the "embed as a library" changes to MicroPython something that can be merged back into that project.
-- Other functions as necessary to ease macros.
+There is much work necessary to get this to an alpha release, you can track the [status here](TODO.md).
 
 Questions? Feedback? [E-mail me](mailto:scott.seligman@gmail.com).
