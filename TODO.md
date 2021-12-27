@@ -19,6 +19,8 @@ Items needed to get to an alpha release:
 - [x] Clipboard helper functions like `clip.copy` and `clip.paste` of some sort.
 - [ ] Add some window management features, like `win.switch`, `win.title`, and so on.
 - [ ] Verify state is saved between calls.
+- [ ] A CLI version to test out code quickly.
+- [ ] Documentation, perhaps built from the harness code.
 - [ ] A build and distribution that can be easily downloaded.
 
 Items needed to get to a beta release:
