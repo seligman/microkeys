@@ -25,6 +25,9 @@ Release
 **/.DS_Store
 **/.DS_Store/
 
+# Dist build
+dist
+
 # MicroPython
 micropython
 *.pp
