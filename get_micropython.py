@@ -48,7 +48,7 @@ def fix_project(data):
     for i, line in enumerate(data):
         if "<ItemGroup>" in line and not done.get("py_module", False):
             done["py_module"] = True
-            todo.append((i + 1, r'    <ClCompile Include="..\..\..\py_module.c" />'))
+            todo.append((i + 1, r'    <ClCompile Include="..\..\..\src\py_module.c" />'))
     todo.sort(reverse=True)
     for i, line in todo:
         data.insert(i, line)

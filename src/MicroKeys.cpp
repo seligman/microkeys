@@ -453,7 +453,13 @@ void LoadPython() {
 	_numKeys = 0;
 	// TODO: Need to clean up memory from any previous runs.
 
-	HANDLE hFile = CreateFile(_T("MicroKeys.py"), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+	HANDLE hFile = CreateFile(
+#ifdef _DEBUG
+		_T("macro\\MicroKeys.py"), 
+#else
+		_T("MicroKeys.py"),
+#endif
+		GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 	if (hFile == INVALID_HANDLE_VALUE) {
 		LogMessage("Unable to open MicroKeys.py\r\n");
 		return;

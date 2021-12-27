@@ -35,6 +35,7 @@ namespace Script
 
             if (fn != null)
             {
+                fn = Path.Combine("macro", fn);
                 for (int i = 0; i < 4; i++)
                 {
                     if (!File.Exists(fn))

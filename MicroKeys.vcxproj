@@ -139,15 +139,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="framework.h" />
-    <ClInclude Include="MicroKeys.h" />
-    <ClInclude Include="Resource.h" />
-    <ClInclude Include="targetver.h" />
-    <ClInclude Include="version.h" />
+    <ClInclude Include="src\framework.h" />
+    <ClInclude Include="src\MicroKeys.h" />
+    <ClInclude Include="src\Resource.h" />
+    <ClInclude Include="src\targetver.h" />
+    <ClInclude Include="src\version.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="MicroKeys.cpp" />
-    <ClCompile Include="py_module.c">
+    <ClCompile Include="src\MicroKeys.cpp" />
+    <ClCompile Include="src\py_module.c">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
@@ -155,11 +155,10 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="MicroKeys.rc" />
+    <ResourceCompile Include="src\MicroKeys.rc" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="MicroKeys.ico" />
-    <Image Include="small.ico" />
+    <Image Include="src\MicroKeys.ico" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="micropython\ports\windows\micropython.vcxproj">
@@ -167,9 +166,9 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <CopyFileToFolders Include="MicroKeys.py">
+    <None Include="macro\MicroKeys.py">
       <FileType>Document</FileType>
-    </CopyFileToFolders>
+    </None>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
