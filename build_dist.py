@@ -164,7 +164,7 @@ def verify_file_exists(fn, msg):
         print(f"ERROR: {fn} not found, need {msg}")
         exit(1)
 
-def push_to_github(ver, changed, notes, release_data):
+def push_to_github(release_title, ver, changed, notes, release_data):
     if len(changed) > 0:
         for cur in changed:
             run(f'git add "{cur}"')
@@ -179,7 +179,7 @@ def push_to_github(ver, changed, notes, release_data):
 
     data = {
         "tag_name": f"v{ver}",
-        "name": f"release_{ver}",
+        "name": release_title,
         "prerelease": GITHUB_PRERELEASE,
         "body": "\n".join(notes),
     }
@@ -220,6 +220,9 @@ def push_to_github(ver, changed, notes, release_data):
     print("All done")
 
 def main():
+    release_title = input("Release title: ")
+    release_note = input("Release note: ")
+
     if INCLUDE_VIRUSTOTAL:
         verify_file_exists("~/.vt_key", "VirusTotal key")
     if PUSH_TO_GITHUB:
@@ -243,9 +246,8 @@ def main():
         hash.update(data)
 
     notes = []
-    note = input("Release note: ")
-    if len(note) > 0:
-        notes.append(note)
+    if len(release_note) > 0:
+        notes.append(release_note)
         notes.append("")
 
     if INCLUDE_VIRUSTOTAL:
@@ -259,7 +261,7 @@ def main():
     print("-" * 80)
 
     if PUSH_TO_GITHUB:
-        push_to_github(ver, changed, notes, data)
+        push_to_github(release_title, ver, changed, notes, data)
 
 if __name__ == "__main__":
     main()
