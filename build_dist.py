@@ -1,12 +1,20 @@
 #!/usr/bin/env python
 
+BUILD_EXE = True
+INCLUDE_VIRUSTOTAL = True
+PUSH_TO_GITHUB = True
+GITHUB_PRERELEASE = True
+GITHUB_REPO = "seligman/microkeys"
+ZIP_NAME = "MicroKeys.zip"
+
 import subprocess
 import os
 import random
 from urllib.request import urlopen, Request
+from urllib.parse import urlencode
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from zipfile import ZipFile
 import hashlib
 import time
@@ -54,7 +62,7 @@ def get_vt_url(data):
         },
         method="POST",
     )
-    make_multipart("MicroKeys.zip", data, req)
+    make_multipart(ZIP_NAME, data, req)
     resp = urlopen(req).read()
     resp = json.loads(resp)
     analysis = resp["data"]["id"]
@@ -75,7 +83,7 @@ def get_vt_url(data):
             print("Not ready yet, will try again...")
             time.sleep(5)
 
-def update_ver():
+def update_ver(changed):
     ver = [0, 0, 0]
     with open(os.path.join("src", "version.h")) as f:
         for row in f:
@@ -105,6 +113,9 @@ def update_ver():
         ]
         with open(os.path.join("src", "version.h"), "wt") as f:
             f.write("\n".join(data) + "\n")
+        changed.append(os.path.join("src", "version.h"))
+    
+    return f'{new_ver[0]}.{new_ver[1]}.{new_ver[2]}'
 
 def build_exe():
     devenv = r"C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional\Common7\IDE\devenv.com"
@@ -119,7 +130,8 @@ def run(cmd):
         subprocess.check_call(cmd, shell=True)
 
 def get_dist_files():
-    yield os.path.join("x64", "Release", "MicroKeys.exe"), "MicroKeys.exe"
+    if BUILD_EXE:
+        yield os.path.join("x64", "Release", "MicroKeys.exe"), "MicroKeys.exe"
     dirs = [("macro", "")]
     while len(dirs) > 0:
         dirname, pretty = dirs.pop(0)
@@ -136,7 +148,7 @@ def get_dist_files():
 def make_zip():
     if not os.path.isdir("dist"):
         os.mkdir("dist")
-    zip_name = os.path.join("dist", "MicroKeys.zip")
+    zip_name = os.path.join("dist", ZIP_NAME)
     with ZipFile(zip_name, 'w') as zipf:
         for fn, pn in get_dist_files():
             zipf.write(fn, pn)
@@ -144,12 +156,83 @@ def make_zip():
     with open(zip_name, "rb") as f:
         return f.read()
 
+def verify_file_exists(fn, msg):
+    fn = fn.split("/")
+    fn = os.path.join(*fn)
+    fn = os.path.expanduser(fn)
+    if not os.path.isfile(fn):
+        print(f"ERROR: {fn} not found, need {msg}")
+        exit(1)
+
+def push_to_github(ver, changed, notes, release_data):
+    if len(changed) > 0:
+        for cur in changed:
+            run(f'git add "{cur}"')
+        run(f'git commit -m "Release v{ver}"')
+        run("git push")
+    
+    run(f'git tag v{ver}')
+    run(f'git push origin v{ver}')
+
+    with open(os.path.expanduser(os.path.join("~", ".github_token"))) as f:
+        git_token = f.read().strip()
+
+    data = {
+        "tag_name": f"v{ver}",
+        "name": f"release_{ver}",
+        "prerelease": GITHUB_PRERELEASE,
+        "body": "\n".join(notes),
+    }
+    headers = {
+        "Authorization": f"token {git_token}",
+    }
+    data = json.dumps(data).encode("utf-8")
+
+    print("Creating new github release")
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
+    req = Request(url, headers=headers)
+    try:
+        resp = urlopen(req, data)
+    except:
+        for key, value in headers:
+            print(f"{key}: {value}")
+        print(f"URL: {url}")
+        raise
+    resp = json.loads(resp.read())
+    upload_url = resp["upload_url"]
+    upload_url = upload_url.split("{")[0]
+
+    print("Uploading build artifact")
+    headers = {
+        "Authorization": f"token {git_token}",
+        "Content-Type": "application/zip",
+    }
+    url = upload_url + "?" + urlencode({"name": ZIP_NAME, "label": ZIP_NAME})
+    req = Request(url, headers=headers)
+    try:
+        urlopen(req, release_data)
+    except:
+        for key, value in headers:
+            print(f"{key}: {value}")
+        print(f"URL: {url}")
+        raise
+
+    print("All done")
+
 def main():
-    update_ver()
-    run("python3 get_micropython.py")
-    build_exe()
+    if INCLUDE_VIRUSTOTAL:
+        verify_file_exists("~/.vt_key", "VirusTotal key")
+    if PUSH_TO_GITHUB:
+        verify_file_exists("~/.github_token", "GitHub token")
+
+    changed = []
+    ver = update_ver(changed)
+    if BUILD_EXE:
+        run("python3 get_micropython.py")
+        build_exe()
     data = make_zip()
-    vt_url = get_vt_url(data)
+    if INCLUDE_VIRUSTOTAL:
+        vt_url = get_vt_url(data)
 
     hashes = [
         (hashlib.md5(), "MD5"),
@@ -159,10 +242,24 @@ def main():
     for hash, _ in hashes:
         hash.update(data)
 
-    print("-" * 80)
-    print(f"Virus Total: [Results]({vt_url})")
+    notes = []
+    note = input("Release note: ")
+    if len(note) > 0:
+        notes.append(note)
+        notes.append("")
+
+    if INCLUDE_VIRUSTOTAL:
+        notes.append(f"Virus Total: [Results]({vt_url})")
     for hash, name in hashes:
-        print(f"{name}: `{hash.hexdigest()}`")
+        notes.append(f"{name}: `{hash.hexdigest()}`")
+
+    print("-" * 80)
+    for cur in notes:
+        print(cur)
+    print("-" * 80)
+
+    if PUSH_TO_GITHUB:
+        push_to_github(ver, changed, notes, data)
 
 if __name__ == "__main__":
     main()
