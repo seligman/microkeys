@@ -1,6 +1,18 @@
 # This is a mock version of the keys implementation in MicroKeys
 # It's only here so editors like VS Code will have autocomplete
 
+"""Keyboard manipulation
+
+This module mostly provides keyboard interactions:
+
+* `key` - A function decoration used to register hot keys
+* `KEY_xxx` - Various key definitions, such as `KEY_ALT`, `KEY_A`, and so on
+* `press` - Press keys based off a string
+
+"""
+
+from typing import Any
+
 KEY_0 = 0x30
 KEY_1 = 0x31
 KEY_2 = 0x32
@@ -74,11 +86,24 @@ KEY_X = 0x58
 KEY_Y = 0x59
 KEY_Z = 0x5A
 
-def press(keys):
-    pass
+def press(keys: str) -> None:
+    """Performs a series of key presses
 
-def key(key_code):
+    `keys` represents the keys to be pressed.  Right now the only 
+    special key is "\\n", which will trigger a return key to be 
+    pressed.
+    TODO: Need to support more features
+    """
+
+    print(f"key.press('{keys}')")
+
+def key(key_code: int) -> Any:
+    """Decoration for a function to register it as a macro key
+
+    `key_code` is a combination of KEY_xxx codes.  For instance
+    `keys.KEY_ALT | keys.KEY_Z` will register Alt+Z and call the
+    function when the user presses Alt+Z.
+    """
     def key_internal(func):
         return func
     return key_internal
-
