@@ -141,6 +141,7 @@
   <ItemGroup>
     <ClInclude Include="src\framework.h" />
     <ClInclude Include="src\MicroKeys.h" />
+    <ClInclude Include="src\py_module_impl.h" />
     <ClInclude Include="src\Resource.h" />
     <ClInclude Include="src\targetver.h" />
     <ClInclude Include="src\version.h" />
@@ -153,6 +154,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="src\py_module_impl.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\MicroKeys.rc" />

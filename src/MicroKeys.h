@@ -2,6 +2,13 @@
 
 #include "resource.h"
 
+typedef struct {
+	char desc[50];
+	char name[250];
+	int vk;
+	void* fun;
+} key_struct;
+
 extern "C" {
 	int run_micro_python(const char* code);
 	void keys_press_invoke(const char* msg);
@@ -19,16 +26,10 @@ void Resize(HWND hWnd);
 void LogMessage(const char* msg);
 void LoadPython();
 void WaitForKeyboard();
-
-typedef struct {
-	char desc[50];
-	char name[250];
-	int vk;
-	void* fun;
-} key_struct;
+HWND GetMainWindow();
+void GetKeysInfo(int** pNumKeys, key_struct** keys);
 
 #define MAX_KEYS 100
 #define MAX_LOADSTRING 100
 #define MICROKEYS_MUTEX _T("MicroKeys_nZ3SC4MxQsEfQlmmWhc2WaELCZrGdam1IGrOh7XL")
-
 #define CDS_INVOKE_MACRO	1001
