@@ -22,6 +22,7 @@ Items needed to get to an alpha release:
 - [ ] A CLI version to test out code quickly.
 - [x] Documentation, perhaps built from the harness code.
 - [x] A build and distribution that can be easily downloaded.
+- [x] Allow keyless macros.
 
 Items needed to get to a beta release:
 

@@ -8,4 +8,5 @@
 #include <memory.h>
 #include <tchar.h>
 #include <cstdio>
+#include <shellapi.h>
 #include "version.h"

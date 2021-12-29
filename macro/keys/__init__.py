@@ -11,7 +11,7 @@ This module mostly provides keyboard interactions:
 
 """
 
-from typing import Any
+from typing import Union, Callable
 
 KEY_0 = 0x30
 KEY_1 = 0x31
@@ -86,6 +86,9 @@ KEY_X = 0x58
 KEY_Y = 0x59
 KEY_Z = 0x5A
 
+import json
+json.loads()
+
 def press(keys: str) -> None:
     """Performs a series of key presses
 
@@ -97,12 +100,14 @@ def press(keys: str) -> None:
 
     print(f"key.press('{keys}')")
 
-def key(key_code: int) -> Any:
+def key(key_code: Union[int, str]) -> Callable:
     """Decoration for a function to register it as a macro key
 
-    `key_code` is a combination of KEY_xxx codes.  For instance
-    `keys.KEY_ALT | keys.KEY_Z` will register Alt+Z and call the
-    function when the user presses Alt+Z.
+    `key_code` is either a combination of KEY_xxx codes, or a string.  For key 
+    codes, use one or more key codes, like `keys.KEY_ALT | keys.KEY_Z` will 
+    register Alt+Z.  For strings, any string is allowed, and will not register 
+    a key, the macro will only be calling by specifying the string on a call 
+    to `MacroKeys.exe`.
     """
     def key_internal(func):
         return func
