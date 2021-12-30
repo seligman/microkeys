@@ -2,7 +2,7 @@
 
 Tracking the work items to get to different stages of development.
 
-Items needed to get to an alpha release:
+Items needed to get past an alpha release:
 
 - [x] Find and remove dependencies on the Console, so this can run as a pure GUI application.
 - [x] Allow Python code to call back into C++, to enable helpers like `type_string` and so on.
@@ -24,7 +24,7 @@ Items needed to get to an alpha release:
 - [x] A build and distribution that can be easily downloaded.
 - [x] Allow keyless macros.
 
-Items needed to get to a beta release:
+Items needed to get past a beta release:
 
 - [ ] Make the "embed as a library" changes to MicroPython something that can be merged back into that project.
 - [ ] GUI based input and output, such as `win.input('prompt?')` to get a string, and `win.msgbox('info')` to show some text.

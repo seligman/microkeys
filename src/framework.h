@@ -10,3 +10,6 @@
 #include <cstdio>
 #include <shellapi.h>
 #include "version.h"
+#include <string>
+#include <sstream>
+#include <vector>
