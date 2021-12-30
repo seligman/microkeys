@@ -74,20 +74,28 @@ extern "C" void key_press_store_fun(int vk, char* name, void* fun) {
 		if ((vk & 0x400) > 0) { AddDesc(desc, "Shift"); }
 		if ((vk & 0x800) > 0) { AddDesc(desc, "Windows"); }
 		switch (vk & 0xFF) {
+		case 0x03: AddDesc(desc, "Break"); break;
 		case 0x08: AddDesc(desc, "Back"); break;
 		case 0x09: AddDesc(desc, "Tab"); break;
 		case 0x0C: AddDesc(desc, "Clear"); break;
 		case 0x0D: AddDesc(desc, "Enter"); break;
+		case 0x14: AddDesc(desc, "CapsLock"); break;
 		case 0x1B: AddDesc(desc, "Escape"); break;
 		case 0x20: AddDesc(desc, "Space"); break;
+		case 0x21: AddDesc(desc, "PageUp"); break;
+		case 0x22: AddDesc(desc, "PageDown"); break;
 		case 0x23: AddDesc(desc, "End"); break;
 		case 0x24: AddDesc(desc, "Home"); break;
 		case 0x25: AddDesc(desc, "Left"); break;
 		case 0x26: AddDesc(desc, "Up"); break;
 		case 0x27: AddDesc(desc, "Right"); break;
 		case 0x28: AddDesc(desc, "Down"); break;
+		case 0x2C: AddDesc(desc, "PrintScreen"); break;
 		case 0x2D: AddDesc(desc, "Insert"); break;
 		case 0x2E: AddDesc(desc, "Delete"); break;
+		case 0x2F: AddDesc(desc, "Help"); break;
+		case 0x90: AddDesc(desc, "NumLock"); break;
+		case 0x91: AddDesc(desc, "ScrollLock"); break;
 		case 0x30: AddDesc(desc, "0"); break;
 		case 0x31: AddDesc(desc, "1"); break;
 		case 0x32: AddDesc(desc, "2"); break;
@@ -136,6 +144,10 @@ extern "C" void key_press_store_fun(int vk, char* name, void* fun) {
 		case 0x79: AddDesc(desc, "F10"); break;
 		case 0x7A: AddDesc(desc, "F11"); break;
 		case 0x7B: AddDesc(desc, "F12"); break;
+		case 0x7C: AddDesc(desc, "F13"); break;
+		case 0x7D: AddDesc(desc, "F14"); break;
+		case 0x7E: AddDesc(desc, "F15"); break;
+		case 0x7F: AddDesc(desc, "F16"); break;
 		default: AddDesc(desc, "<Unknown>"); break;
 		}
 		// End of generated section -- Do not edit!
