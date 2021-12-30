@@ -1,7 +1,6 @@
 #include "framework.h"
 #include "MicroKeys.h"
 
-
 HINSTANCE _hInst = NULL;
 wstring _title = L"";
 wstring _windowClass = L"";
@@ -199,8 +198,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
 	case WM_COMMAND:
 	{
-		int wmId = LOWORD(wParam);
-		switch (wmId)
+		switch (LOWORD(wParam))
 		{
 		case IDM_ABOUT:
 			DialogBox(_hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
