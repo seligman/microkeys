@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 
-import json
-import os
-import re
+"""
+This module is responsible for updating py_module_impl.cpp, py_module.c, and 
+the python keys module with all of the keys listed below in the JSONL data 
+segment.  It is not run as part of a build process, but rather run on 
+demand when necessary.
+"""
 
 KEYS = """
 {"id": "08", "const": "BACK", "help": "The backspace key.", "desc": "Back"}
 {"id": "09", "const": "TAB", "help": "The tab key.", "desc": "Tab"}
-{"id": "0C", "const": "CLEAR", "help": "The 'Clear' key, or numpad '5'.", "desc": "Clear"}
+{"id": "0C", "const": "CLEAR", "help": "The 'clear' key, or numpad '5'.", "desc": "Clear"}
 {"id": "0D", "const": ["ENTER", "RETURN"], "help": "The enter/return key.", "desc": "Enter"}
 {"id": "1B", "const": ["ESC", "ESCAPE"], "help": "The escape key.", "desc": "Escape"}
 {"id": "20", "const": "SPACE", "help": "The space bar.", "desc": "Space"}
@@ -25,57 +28,14 @@ KEYS = """
 {"id": "400", "const": "SHIFT", "help": "The shift modifier key.", "desc": "Shift", "modifier": true}
 {"id": "800", "const": ["WIN", "WINDOWS"], "help": "The Windows modifier key.", "desc": "Windows", "modifier": true}
 
-{"id": "30", "const": "0"}
-{"id": "31", "const": "1"}
-{"id": "32", "const": "2"}
-{"id": "33", "const": "3"}
-{"id": "34", "const": "4"}
-{"id": "35", "const": "5"}
-{"id": "36", "const": "6"}
-{"id": "37", "const": "7"}
-{"id": "38", "const": "8"}
-{"id": "39", "const": "9"}
-
-{"id": "41", "const": "A"}
-{"id": "42", "const": "B"}
-{"id": "43", "const": "C"}
-{"id": "44", "const": "D"}
-{"id": "45", "const": "E"}
-{"id": "46", "const": "F"}
-{"id": "47", "const": "G"}
-{"id": "48", "const": "H"}
-{"id": "49", "const": "I"}
-{"id": "4A", "const": "J"}
-{"id": "4B", "const": "K"}
-{"id": "4C", "const": "L"}
-{"id": "4D", "const": "M"}
-{"id": "4E", "const": "N"}
-{"id": "4F", "const": "O"}
-{"id": "50", "const": "P"}
-{"id": "51", "const": "Q"}
-{"id": "52", "const": "R"}
-{"id": "53", "const": "S"}
-{"id": "54", "const": "T"}
-{"id": "55", "const": "U"}
-{"id": "56", "const": "V"}
-{"id": "57", "const": "W"}
-{"id": "58", "const": "X"}
-{"id": "59", "const": "Y"}
-{"id": "5A", "const": "Z"}
-
-{"id": "70", "const": "F1"}
-{"id": "71", "const": "F2"}
-{"id": "72", "const": "F3"}
-{"id": "73", "const": "F4"}
-{"id": "74", "const": "F5"}
-{"id": "75", "const": "F6"}
-{"id": "76", "const": "F7"}
-{"id": "77", "const": "F8"}
-{"id": "78", "const": "F9"}
-{"id": "79", "const": "F10"}
-{"id": "7A", "const": "F11"}
-{"id": "7B", "const": "F12"}
+{"id": "30", "const": "#", "help": "The '#' key.", "desc": "#", "range": "0123456789"}
+{"id": "41", "const": "#", "help": "The '#' key.", "desc": "#", "range": "ABCDEFGHIJKLMNOPQRSTUVWXYZ"}
+{"id": "70", "const": "#", "help": "The # function key.", "desc": "#", "range": ["F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12"]}
 """
+
+import json
+import os
+import re
 
 def enum_const(val):
     if isinstance(val, str):
@@ -123,11 +83,15 @@ def main():
         cur = cur.strip()
         if len(cur):
             key = json.loads(cur)
-            if "desc" not in key:
-                key["desc"] = key["const"]
-            if "help" not in key:
-                key["help"] = f"The '{key['desc']}' key."
-            keys.append(key)
+            for val in key.get("range", [None]):
+                if val is not None:
+                    for prop in ['desc', 'const', 'help']:
+                        key[prop] = key[prop].replace("#", val)
+                keys.append(key)
+                key = key.copy()
+                next_id = f'{int(key["id"], 16)+1:02X}'
+                key = json.loads(cur)
+                key["id"] = next_id
 
     all_ids = set()
     all_consts = set()

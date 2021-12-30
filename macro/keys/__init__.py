@@ -20,7 +20,7 @@ KEY_BACK = 0x08
 KEY_TAB = 0x09
 """The tab key."""
 KEY_CLEAR = 0x0C
-"""The 'Clear' key, or numpad '5'."""
+"""The 'clear' key, or numpad '5'."""
 KEY_ENTER = 0x0D
 """The enter/return key."""
 KEY_RETURN = 0x0D
@@ -136,29 +136,29 @@ KEY_Y = 0x59
 KEY_Z = 0x5A
 """The 'Z' key."""
 KEY_F1 = 0x70
-"""The 'F1' key."""
+"""The F1 function key."""
 KEY_F2 = 0x71
-"""The 'F2' key."""
+"""The F2 function key."""
 KEY_F3 = 0x72
-"""The 'F3' key."""
+"""The F3 function key."""
 KEY_F4 = 0x73
-"""The 'F4' key."""
+"""The F4 function key."""
 KEY_F5 = 0x74
-"""The 'F5' key."""
+"""The F5 function key."""
 KEY_F6 = 0x75
-"""The 'F6' key."""
+"""The F6 function key."""
 KEY_F7 = 0x76
-"""The 'F7' key."""
+"""The F7 function key."""
 KEY_F8 = 0x77
-"""The 'F8' key."""
+"""The F8 function key."""
 KEY_F9 = 0x78
-"""The 'F9' key."""
+"""The F9 function key."""
 KEY_F10 = 0x79
-"""The 'F10' key."""
+"""The F10 function key."""
 KEY_F11 = 0x7A
-"""The 'F11' key."""
+"""The F11 function key."""
 KEY_F12 = 0x7B
-"""The 'F12' key."""
+"""The F12 function key."""
 # End of generated section -- Do not edit!
 
 import json
