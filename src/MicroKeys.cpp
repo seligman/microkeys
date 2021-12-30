@@ -1,22 +1,17 @@
 #include "framework.h"
 #include "MicroKeys.h"
 
+
 HINSTANCE _hInst = NULL;
-WCHAR _szTitle[MAX_LOADSTRING] = { 0 };
-WCHAR _szWindowClass[MAX_LOADSTRING] = { 0 };
+wstring _title = L"";
+wstring _windowClass = L"";
 HWND _hWndMain = NULL;
 HWND _hWndEdit = NULL;
-key_struct _keys[MAX_KEYS] = { 0 };
-int _numKeys = 0;
 bool _handleHotkeys = true;
+vector<KeyData> _keys;
 
-void GetKeysInfo(int** pNumKeys, key_struct** keys) {
-	if (pNumKeys != NULL) {
-		*pNumKeys = &_numKeys;
-	}
-	if (keys != NULL) {
-		*keys = _keys;
-	}
+vector<KeyData>& GetKeys() {
+	return _keys;
 }
 
 HWND GetMainWindow() {
@@ -38,14 +33,23 @@ void DoEvents() {
 	_handleHotkeys = true;
 }
 
+wstring LoadStringW(HINSTANCE hInstance, UINT id) {
+	LPWSTR temp = NULL;
+	int len = LoadStringW(hInstance, id, (LPWSTR)&temp, 0);
+	if (len > 0) {
+		return wstring{temp, static_cast<size_t>(len)};
+	}
+	return L"";
+}
+
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine, _In_ int nCmdShow) {
-	LoadStringW(hInstance, IDS_APP_TITLE, _szTitle, MAX_LOADSTRING);
-	LoadStringW(hInstance, IDC_MICROKEYS, _szWindowClass, MAX_LOADSTRING);
+	_title = LoadStringW(hInstance, IDS_APP_TITLE);
+	_windowClass = LoadStringW(hInstance, IDC_MICROKEYS);
 
 	int argc = 0;
 	LPWSTR*argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 	if (argc == 2) {
-		HWND hWnd = FindWindow(_szWindowClass, _szTitle);
+		HWND hWnd = FindWindow(_windowClass.c_str(), _title.c_str());
 		COPYDATASTRUCT cds = { 0 };
 		char temp[1000] = { 0 };
 		WideCharToMultiByte(CP_UTF8, 0, argv[1], (int)wcslen(argv[1]), temp, 1000, NULL, NULL);
@@ -58,7 +62,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 
 	HANDLE hMutex = CreateMutex(NULL, TRUE, MICROKEYS_MUTEX);
 	if (GetLastError() == ERROR_ALREADY_EXISTS) {
-		HWND hWnd = FindWindow(_szWindowClass, _szTitle);
+		HWND hWnd = FindWindow(_windowClass.c_str(), _title.c_str());
 		ShowWindow(hWnd, SW_SHOWNORMAL);
 		SetForegroundWindow(hWnd);
 		return 0;
@@ -100,7 +104,7 @@ ATOM MyRegisterClass(HINSTANCE hInstance) {
 	wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
 	wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
 	wcex.lpszMenuName = MAKEINTRESOURCEW(IDC_MICROKEYS);
-	wcex.lpszClassName = _szWindowClass;
+	wcex.lpszClassName = _windowClass.c_str();
 
 	return RegisterClassExW(&wcex);
 }
@@ -109,7 +113,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow) {
 	_hInst = hInstance;
 
 	_hWndMain = CreateWindowW(
-		_szWindowClass, _szTitle, WS_OVERLAPPEDWINDOW,
+		_windowClass.c_str(), _title.c_str(), WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT,
 		500, 500,
 		nullptr, nullptr, hInstance, nullptr);
@@ -140,14 +144,14 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow) {
 	return TRUE;
 }
 
-void LogMessage(const char* msg) {
+void LogMessage(string msg) {
 	int index = GetWindowTextLength(_hWndEdit);
 	// Escape hatch for the input box getting too big
 	if (SendMessage(_hWndEdit, WM_GETTEXTLENGTH, 0, 0) > 10 * 1024 * 1024) {
 		SendMessage(_hWndEdit, WM_SETTEXT, (WPARAM)0, (LPARAM)_T(""));
 	}
 	SendMessage(_hWndEdit, EM_SETSEL, (WPARAM)index, (LPARAM)index);
-	SendMessageA(_hWndEdit, EM_REPLACESEL, 0, (LPARAM)msg);
+	SendMessageA(_hWndEdit, EM_REPLACESEL, 0, (LPARAM)msg.c_str());
 
 #if 0
 	HANDLE hFile = CreateFile(_T("MicroKeys.log"), FILE_APPEND_DATA, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -184,12 +188,12 @@ void Resize(HWND hWnd) {
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 	switch (message) {
 	case WM_HOTKEY:
-		if (_handleHotkeys && (int)wParam <= _numKeys && wParam > 0) {
-			char temp[1000];
-			sprintf_s(temp, "Keypress of %s detected\r\n", _keys[wParam - 1].desc);
-			LogMessage(temp);
+		if (_handleHotkeys && (int)wParam <= _keys.size() && wParam > 0) {
+			stringstream ss;
+			ss << "Keypress of " << _keys[wParam - 1].Description << " detected\r\n";
+			LogMessage(ss.str());
 			WaitForKeyboard();
-			run_fun(_keys[wParam - 1].fun);
+			run_fun(_keys[wParam - 1].PythonFunction);
 		}
 		return 0;
 
@@ -210,15 +214,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 	}
 	break;
 
-	case WM_PAINT:
-	{
-		PAINTSTRUCT ps;
-		HDC hdc = BeginPaint(hWnd, &ps);
-		// TODO: Add any drawing code that uses hdc here...
-		EndPaint(hWnd, &ps);
-	}
-	break;
-
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		break;
@@ -231,13 +226,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 	{
 		COPYDATASTRUCT* cds = (COPYDATASTRUCT*)lParam;
 		if (cds->dwData == CDS_INVOKE_MACRO) {
-			for (int i = 0; i < _numKeys; i++) {
-				if (strcmp(_keys[i].name, (const char*)cds->lpData) == 0) {
-					char temp[1000];
-					sprintf_s(temp, "Macro '%s' called\r\n", _keys[i].name);
-					LogMessage(temp);
+			for (auto key : _keys) {
+				if (strcmp(key.Name.c_str(), (const char*)cds->lpData) == 0) {
+					stringstream ss;
+					ss << "Macro '" << key.Name << "' called\r\n";
+					LogMessage(ss.str());
 					WaitForKeyboard();
-					run_fun(_keys[i].fun);
+					run_fun(key.PythonFunction);
 				}
 			}
 		}
@@ -289,12 +284,12 @@ void WaitForKeyboard() {
 }
 
 void LoadPython() {
-	for (int i = 0; i < _numKeys; i++) {
-		if (_keys[i].vk != 0) {
-			UnregisterHotKey(_hWndMain, i + 1);
+	for (auto key : _keys) {
+		if (key.VK != 0) {
+			UnregisterHotKey(_hWndMain, key.ID);
 		}
 	}
-	_numKeys = 0;
+	_keys.clear();
 	// TODO: Need to clean up memory from any previous runs.
 
 	HANDLE hFile = CreateFile(
@@ -325,8 +320,8 @@ void LoadPython() {
 	int ret = run_micro_python(data);
 	free(data);
 	if (ret != 0) {
-		char temp[1000];
-		sprintf_s(temp, "Call returned: %d\r\n", ret);
-		LogMessage(temp);
+		stringstream ss;
+		ss << "Call returned: " << ret << "\r\n";
+		LogMessage(ss.str());
 	}
 }

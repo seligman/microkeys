@@ -2,12 +2,16 @@
 
 #include "resource.h"
 
-typedef struct {
-	char desc[50];
-	char name[250];
-	int vk;
-	void* fun;
-} key_struct;
+using namespace std;
+
+class KeyData {
+public:
+	int ID;
+	string Description;
+	string Name;
+	int VK;
+	void* PythonFunction;
+};
 
 extern "C" {
 	int run_micro_python(const char* code);
@@ -23,13 +27,11 @@ LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 void DoEvents();
 INT_PTR CALLBACK About(HWND, UINT, WPARAM, LPARAM);
 void Resize(HWND hWnd);
-void LogMessage(const char* msg);
+void LogMessage(string msg);
 void LoadPython();
 void WaitForKeyboard();
 HWND GetMainWindow();
-void GetKeysInfo(int** pNumKeys, key_struct** keys);
+vector<KeyData>& GetKeys();
 
-#define MAX_KEYS 100
-#define MAX_LOADSTRING 100
-#define MICROKEYS_MUTEX _T("MicroKeys_nZ3SC4MxQsEfQlmmWhc2WaELCZrGdam1IGrOh7XL")
+#define MICROKEYS_MUTEX L"MicroKeys_nZ3SC4MxQsEfQlmmWhc2WaELCZrGdam1IGrOh7XL"
 #define CDS_INVOKE_MACRO	1001
