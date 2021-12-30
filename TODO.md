@@ -20,7 +20,7 @@ Items needed to get to an alpha release:
 - [ ] Add some window management features, like `win.switch`, `win.title`, and so on.
 - [ ] Verify state is saved between calls.
 - [ ] A CLI version to test out code quickly.
-- [x] Documentation, perhaps built from the harness code.
+- [x] Basic documentation for python modules.
 - [x] A build and distribution that can be easily downloaded.
 - [x] Allow keyless macros.
 
@@ -35,6 +35,7 @@ Items needed to get to a beta release:
 - [ ] Some memory leak testing, fixing of all the bugs.
 - [ ] Improve UI.
 - [ ] A proper installer.
+- [ ] Documentation, perhaps built from the harness code.
 
 Items for future work:
 
