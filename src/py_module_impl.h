@@ -3,6 +3,7 @@
 extern "C" {
 	int run_micro_python(const char* code);
 	void keys_press_invoke(const char* msg);
+	void keys_press_raw_invoke(const char* msg);
 	int run_micro_python(const char* code);
 	int run_fun(void* fun);
 	char* clip_copy_invoke();

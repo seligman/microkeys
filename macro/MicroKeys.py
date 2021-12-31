@@ -2,9 +2,10 @@ import keys, clip
 
 @keys.key(keys.KEY_ALT | keys.KEY_Z)
 def example_func():
+    keys.press("^c")
     x = clip.copy()
     result = eval(x)
-    keys.press(f"{x} = {result}")
+    keys.press_raw(f"{x} = {result}")
 
 @keys.key("no-key-macro")
 def example_no_key():

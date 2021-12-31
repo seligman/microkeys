@@ -14,7 +14,7 @@ Items needed to get past an alpha release:
 - [x] Keep machine state around between keys.
 - [x] Properly implement `keys.press` to press keys.
 - [x] Don't stall out the GUI message loop while doing work.
-- [ ] Add features to `keys.press`, like ctrl, shift, alt, ~ for enter, etc
+- [x] Add features to `keys.press`, like ctrl, shift, alt, ~ for enter, etc
 - [ ] Implement `mouse.click` and such for some basic mouse features.
 - [x] Clipboard helper functions like `clip.copy` and `clip.paste` of some sort.
 - [ ] Add some window management features, like `win.switch`, `win.title`, and so on.

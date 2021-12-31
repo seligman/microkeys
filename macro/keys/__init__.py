@@ -8,6 +8,7 @@ This module mostly provides keyboard interactions:
 * `key` - A function decoration used to register hot keys
 * `KEY_xxx` - Various key definitions, such as `KEY_ALT`, `KEY_A`, and so on
 * `press` - Press keys based off a string
+* `press_raw` - Press keys based off a string, without looking for key codes
 
 """
 
@@ -221,10 +222,22 @@ json.loads()
 def press(keys: str) -> None:
     """Performs a series of key presses
 
-    `keys` represents the keys to be pressed.  Right now the only 
-    special key is "\\n", which will trigger a return key to be 
-    pressed.
-    TODO: Need to support more features
+    `keys` can specify any single key or any key combined with Alt, Control, Shift, or any 
+    combination.  Each key is represented by one or more characters, such as a for the 
+    character "a", or {ENTER} for the Enter key.
+
+    To combine a key with Shift, precede the key code with `+`. To combine a key with 
+    Control, precede the key code with `^`. To combine a key with Alt, precede the key 
+    code with `%`.
+    """
+
+    print(f"key.press('{keys}')")
+
+def press_raw(keys: str) -> None:
+    """Performs a series of key presses
+
+    `keys` is a string to be pressed out.  Only `\n`, '\t`, and '\b` are interpreted as 
+    keys (Enter, Tab, and Backspace), the rest are typed as as is.
     """
 
     print(f"key.press('{keys}')")

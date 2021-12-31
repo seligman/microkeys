@@ -45,7 +45,6 @@ namespace Script
             ), Script.FollowScript(250,
                 "+ctrl",
                 ">a",
-                ">c",
                 "-ctrl",
                 "+alt",
                 ">z",

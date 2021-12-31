@@ -55,22 +55,33 @@ def enum_const(val, alphanumeric_only=True):
         ret = [x for x in ret if r.search(x) is not None]
     return ret
 
-def handle_py_module_impl(keys):
+def handle_py_module_impl(prev, keys):
     if keys is None:
         return "src/py_module_impl.cpp"
+
     ret = []
-    for key in keys:
-        if key.get("modifier", False):
-            ret.append(f'if ((vk & 0x{key["id"]}) > 0) {{ AddDesc(desc, "{key["desc"]}"); }}')
-    ret.append('switch (vk & 0xFF) {')
-    for key in keys:
-        if not key.get("modifier", False):
-            ret.append(f'case 0x{key["id"]}: AddDesc(desc, "{key["desc"]}"); break;')
-    ret.append('default: AddDesc(desc, "<Unknown>"); break;')
-    ret.append('}')
+    if "Section AddDesc" in prev[0]:
+        ret.append("/* Section AddDesc */")
+        for key in keys:
+            if key.get("modifier", False):
+                ret.append(f'if ((vk & 0x{key["id"]}) > 0) {{ AddDesc(desc, "{key["desc"]}"); }}')
+        ret.append('switch (vk & 0xFF) {')
+        for key in keys:
+            if not key.get("modifier", False):
+                ret.append(f'case 0x{key["id"]}: AddDesc(desc, "{key["desc"]}"); break;')
+        ret.append('default: AddDesc(desc, "<Unknown>"); break;')
+        ret.append('}')
+    elif "" in prev[0]:
+        ret.append("/* Section CurlyDesc */")
+        first = ""
+        for key in keys:
+            for const in enum_const(key['const']):
+                if len(const) > 1:
+                    ret.append(first + f'if (curly == "{const}") {{ press_key(0, 0x{key["id"]}, shiftState, altState, ctrlState); }}')
+                    first = "else "
     return ret
 
-def handle_py_module(keys):
+def handle_py_module(prev, keys):
     if keys is None:
         return "src/py_module.c"
     ret = []
@@ -79,7 +90,7 @@ def handle_py_module(keys):
             ret.append(f'{{ MP_ROM_QSTR(MP_QSTR_KEY_{const}), MP_ROM_INT(0x{key["id"]}) }},')
     return ret
 
-def handle_keys_module(keys):
+def handle_keys_module(prev, keys):
     if keys is None:
         return "macro/keys/__init__.py"
     ret = []
@@ -122,7 +133,7 @@ def main():
         handle_keys_module,
     ]
     for helper in helpers:
-        fn = helper(None)
+        fn = helper(None, None)
         fn = fn.split("/")
         fn = os.path.join(*fn)
         sections = [(False, [])]
@@ -143,7 +154,7 @@ def main():
             original += data
             if in_section:
                 indent = re.search("^([\t ]*)", data[0]).group(1)
-                temp = helper(keys)
+                temp = helper(data, keys)
                 temp = [indent + x for x in temp]
                 replace += temp
             else:
