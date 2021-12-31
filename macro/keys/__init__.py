@@ -262,9 +262,6 @@ KEY_F16 = 0x7F
 """The F16 function key."""
 # End of generated section -- Do not edit!
 
-import json
-json.loads()
-
 def press(keys: str) -> None:
     """Performs a series of key presses
 

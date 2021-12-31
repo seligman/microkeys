@@ -132,7 +132,7 @@ def run(cmd):
 def get_dist_files():
     if BUILD_EXE:
         yield os.path.join("x64", "Release", "MicroKeys.exe"), "MicroKeys.exe"
-    dirs = [("macro", "")]
+    dirs = [("macro", ""), (os.path.join("docs", "output"), "docs")]
     while len(dirs) > 0:
         dirname, pretty = dirs.pop(0)
         for cur in os.listdir(dirname):
@@ -234,6 +234,10 @@ def main():
         run("python3 get_micropython.py")
         build_exe()
         run("python3 " + os.path.join("tests", "run_all.py") + " Release")
+        old_cwd = os.getcwd()
+        os.chdir("docs")
+        run("python3 generate_docs.py")
+        os.chdir(old_cwd)
     data = make_zip()
     if INCLUDE_VIRUSTOTAL:
         vt_url = get_vt_url(data)
