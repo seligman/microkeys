@@ -63,6 +63,79 @@ STATIC mp_obj_t keys_key(mp_obj_t a_obj) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(keys_key_obj, keys_key);
 
+/* ----- mouse.position ---------------------------------------------------- */
+void mouse_position_invoke(int* x, int* y);
+STATIC mp_obj_t mouse_position(void) {
+    int x = 0;
+    int y = 0;
+    mouse_position_invoke(&x, &y);
+    mp_obj_t items[] = { mp_obj_new_int(x), mp_obj_new_int(y) };
+    return mp_obj_new_tuple(2, items);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mouse_position_obj, mouse_position);
+
+/* ----- mouse.move -------------------------------------------------------- */
+void mouse_move_invoke(int x, int y, int offset);
+STATIC mp_obj_t mouse_move(mp_obj_t a_obj, mp_obj_t b_obj) {
+    int x = mp_obj_get_int(a_obj);
+    int y = mp_obj_get_int(b_obj);
+    mouse_move_invoke(x, y, 0);
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(mouse_move_obj, mouse_move);
+
+/* ----- mouse.offset ------------------------------------------------------ */
+STATIC mp_obj_t mouse_offset(mp_obj_t a_obj, mp_obj_t b_obj) {
+    int x = mp_obj_get_int(a_obj);
+    int y = mp_obj_get_int(b_obj);
+    mouse_move_invoke(x, y, 1);
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(mouse_offset_obj, mouse_offset);
+
+/* ----- mouse.click ------------------------------------------------------- */
+void mouse_click_invoke(int left_down, int left_up, int right_down, int right_up); 
+STATIC mp_obj_t mouse_click(void) {
+    mouse_click_invoke(1, 1, 0, 0);
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mouse_click_obj, mouse_click);
+
+/* ----- mouse.right_click ------------------------------------------------- */
+STATIC mp_obj_t mouse_right_click(void) {
+    mouse_click_invoke(0, 0, 1, 1);
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mouse_right_click_obj, mouse_right_click);
+
+/* ----- mouse.down -------------------------------------------------------- */
+STATIC mp_obj_t mouse_down(void) {
+    mouse_click_invoke(1, 0, 0, 0);
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mouse_down_obj, mouse_down);
+
+/* ----- mouse.right_down -------------------------------------------------- */
+STATIC mp_obj_t mouse_right_down(void) {
+    mouse_click_invoke(0, 0, 1, 0);
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mouse_right_down_obj, mouse_right_down);
+
+/* ----- mouse.up ---------------------------------------------------------- */
+STATIC mp_obj_t mouse_up(void) {
+    mouse_click_invoke(0, 1, 0, 0);
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mouse_up_obj, mouse_up);
+
+/* ----- mouse.right_up ---------------------------------------------------- */
+STATIC mp_obj_t mouse_right_up(void) {
+    mouse_click_invoke(0, 0, 0, 1);
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(mouse_right_up_obj, mouse_right_up);
+
 /* ----- Connection Glue --------------------------------------------------- */
 /*       keys module                                                         */
 STATIC const mp_rom_map_elem_t keys_module_globals_table[] = {
@@ -215,3 +288,23 @@ const mp_obj_module_t clip_user_cmodule = {
     .globals = (mp_obj_dict_t*)&clip_module_globals,
 };
 MP_REGISTER_MODULE(MP_QSTR_clip, clip_user_cmodule, 1);
+
+/*       mouse module                                                        */
+STATIC const mp_rom_map_elem_t mouse_module_globals_table[] = {
+    { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_mouse) },
+    { MP_ROM_QSTR(MP_QSTR_position), MP_ROM_PTR(&mouse_position_obj) },
+    { MP_ROM_QSTR(MP_QSTR_move), MP_ROM_PTR(&mouse_move_obj) },
+    { MP_ROM_QSTR(MP_QSTR_offset), MP_ROM_PTR(&mouse_offset_obj) },
+    { MP_ROM_QSTR(MP_QSTR_click), MP_ROM_PTR(&mouse_click_obj) },
+    { MP_ROM_QSTR(MP_QSTR_right_click), MP_ROM_PTR(&mouse_right_click_obj) },
+    { MP_ROM_QSTR(MP_QSTR_down), MP_ROM_PTR(&mouse_down_obj) },
+    { MP_ROM_QSTR(MP_QSTR_right_down), MP_ROM_PTR(&mouse_right_down_obj) },
+    { MP_ROM_QSTR(MP_QSTR_up), MP_ROM_PTR(&mouse_up_obj) },
+    { MP_ROM_QSTR(MP_QSTR_right_up), MP_ROM_PTR(&mouse_right_up_obj) },
+};
+STATIC MP_DEFINE_CONST_DICT(mouse_module_globals, mouse_module_globals_table);
+const mp_obj_module_t mouse_user_cmodule = {
+    .base = { &mp_type_module },
+    .globals = (mp_obj_dict_t*)&mouse_module_globals,
+};
+MP_REGISTER_MODULE(MP_QSTR_mouse, mouse_user_cmodule, 1);

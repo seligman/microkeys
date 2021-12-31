@@ -621,3 +621,74 @@ extern "C" void clip_paste_invoke(const char* data) {
 		CloseClipboard();
 	}
 }
+
+int _mouse_x = 10;
+int _mouse_y = 10;
+extern "C" void mouse_position_invoke(int* x, int* y) {
+	if (TestLogEnabled()) {
+		TestLog("mouse.position()");
+		*x = _mouse_x;
+		*y = _mouse_y;
+		return;
+	}
+	LogMessage("mouse.position()");
+	POINT pt;
+	GetCursorPos(&pt);
+	*x = pt.x;
+	*y = pt.y;
+}
+
+extern "C" void mouse_move_invoke(int x, int y, int offset) {
+	if (TestLogEnabled()) {
+		stringstream ss;
+		ss << "mouse.move(" << x << "," << y << "," << offset << ")";
+		TestLog(ss.str());
+		if (offset) {
+			_mouse_x += x;
+			_mouse_y += y;
+		}
+		else {
+			_mouse_x = x;
+			_mouse_y = y;
+		}
+		return;
+	}
+	stringstream ss;
+	ss << "mouse.move(" << x << "," << y << "," << offset << ")";
+	LogMessage(ss.str());
+
+	if (offset) {
+		POINT pt;
+		GetCursorPos(&pt);
+		x = pt.x + x;
+		y = pt.y + y;
+	}
+	SetCursorPos(x, y);
+}
+
+void mouse_helper(DWORD event, int vk, int check) {
+	mouse_event(event, 0, 0, 0, NULL);
+	for (int bail = 0; bail < 10; bail++) {
+		if ((GetKeyState(vk) & 0x8000) == check) {
+			break;
+		}
+		Sleep(50);
+	}
+}
+
+extern "C" void mouse_click_invoke(int left_down, int left_up, int right_down, int right_up) {
+	if (TestLogEnabled()) {
+		stringstream ss;
+		ss << "mouse.click(" << left_down << "," << left_up << "," << right_down << "," << right_up << ")";
+		TestLog(ss.str());
+		return;
+	}
+	stringstream ss;
+	ss << "mouse.click(" << left_down << "," << left_up << "," << right_down << "," << right_up << ")";
+	LogMessage(ss.str());
+
+	if (left_down) { mouse_helper(MOUSEEVENTF_LEFTDOWN, VK_LBUTTON, 0x8000); }
+	if (left_up) { mouse_helper(MOUSEEVENTF_LEFTUP, VK_LBUTTON, 0x0000); }
+	if (right_down) { mouse_helper(MOUSEEVENTF_RIGHTDOWN, VK_RBUTTON, 0x8000); }
+	if (right_up) { mouse_helper(MOUSEEVENTF_RIGHTUP, VK_RBUTTON, 0x0000); }
+}
