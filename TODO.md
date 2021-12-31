@@ -18,8 +18,8 @@ Items needed to get past an alpha release:
 - [ ] Implement `mouse.click` and such for some basic mouse features.
 - [x] Clipboard helper functions like `clip.copy` and `clip.paste` of some sort.
 - [ ] Add some window management features, like `win.switch`, `win.title`, and so on.
-- [ ] Verify state is saved between calls.
-- [ ] A CLI version to test out code quickly.
+- [x] Verify state is saved between calls.
+- [x] A CLI version to test out code quickly.
 - [x] Basic documentation for python modules.
 - [x] A build and distribution that can be easily downloaded.
 - [x] Allow keyless macros.

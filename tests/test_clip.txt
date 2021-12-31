@@ -1,0 +1,25 @@
+clip.copy()
+keys.press_raw("<clipboard> 2")
+  Key: Shift down
+  Key: Comma press
+  Key: Shift up
+  Key: C press
+  Key: L press
+  Key: I press
+  Key: P press
+  Key: B press
+  Key: O press
+  Key: A press
+  Key: R press
+  Key: D press
+  Key: Shift down
+  Key: Period press
+  Key: Shift up
+  Key: Space press
+  Key: 2 press
+clip.paste("3")
+clip.copy()
+keys.press_raw("3 4")
+  Key: 3 press
+  Key: Space press
+  Key: 4 press

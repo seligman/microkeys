@@ -567,10 +567,13 @@ extern "C" void key_press_store_fun(int vk, char* name, void* fun) {
 	LogMessage(ss.str());
 }
 
+string _debug_clip = "<clipboard>";
 extern "C" char* clip_copy_invoke() {
 	if (TestLogEnabled()) {
 		TestLog("clip.copy()");
-		return (char*)"<clipboard>";
+		char* ret = (char* )malloc(_debug_clip.length() + 1);
+		strcpy_s(ret, _debug_clip.length() + 1, _debug_clip.c_str());
+		return ret;
 	}
 	LogMessage("clip.copy()");
 
@@ -597,6 +600,8 @@ extern "C" void clip_paste_invoke(const char* data) {
 		stringstream ss;
 		ss << "clip.paste(\"" << data << "\")";
 		TestLog(ss.str());
+		_debug_clip = string(data);
+		return;
 	}
 	stringstream ss;
 	ss << "clip.paste('" << data << "')";

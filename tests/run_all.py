@@ -3,6 +3,7 @@
 import subprocess
 import os
 import sys
+import re
 
 os.chdir(os.path.split(__file__)[0])
 
@@ -15,19 +16,37 @@ exe = os.path.join("..", "x64", sys.argv[1], "MicroKeys.exe")
 if not os.path.isfile(exe):
     print("ERROR: Unable to find " + exe)
 
+print("Running tests...")
+good = 0
 for cur in sorted(os.listdir(".")):
     if cur.startswith("test_") and cur.endswith(".py"):
         expected = cur[:-3] + ".txt"
+
+        tests = []
+        with open(cur) as f:
+            for row in f:
+                m = re.search('@keys.key\\("(?P<test>.*)"\\)', row)
+                if m is not None:
+                    tests.append(m.group("test"))
 
         temp = "temp_output.txt"
         if os.path.isfile(temp):
             os.unlink(temp)
 
+        if len(tests) == 0:
+            raise Exception(f"Unable to find tests in {cur}")
+
         os.environ["MICROKEYS_LOG"] = temp
-        os.environ["MICROKEYS_RUN"] = "test"
+        os.environ["MICROKEYS_RUN"] = ",".join(tests)
         os.environ["MICROKEYS_SOURCE"] = cur
 
-        subprocess.check_call([exe])
+        try:
+            subprocess.check_call([exe])
+        except:
+            for key, value in os.environ.items():
+                if key.startswith("MICROKEYS_"):
+                    print(f"{key}={value}")
+            raise
 
         if os.path.isfile(expected):
             with open(expected) as f:
@@ -44,6 +63,7 @@ for cur in sorted(os.listdir(".")):
             exit(1)
         
         os.unlink(temp)
-        print(f"{cur} is good.")
+        good += 1
+        print(f"{good:3d}: {cur[5:-3]} is good.")
 
-print("All done!")
+print(f"All {good} tests are good")

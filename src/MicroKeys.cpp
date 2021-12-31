@@ -96,13 +96,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 
 	wstring run = GetEnvironmentVariableW(L"MICROKEYS_RUN");
 	if (run.length() > 0) {
-		string runA = WStrToStr(run);
 		LoadPython();
-		for (auto& key : _keys) {
-			if (key.Name == runA) {
-				WaitForKeyboard();
-				run_fun(key.PythonFunction);
-				break;
+		istringstream run_ss(WStrToStr(run));
+		string cur;
+		while (getline(run_ss, cur, ',')) {
+			for (auto& key : _keys) {
+				if (key.Name == cur) {
+					run_fun(key.PythonFunction);
+					break;
+				}
 			}
 		}
 		return 0;
