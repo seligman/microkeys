@@ -32,6 +32,11 @@ void LoadPython();
 void WaitForKeyboard();
 HWND GetMainWindow();
 vector<KeyData>& GetKeys();
+string WStrToStr(wstring wstr);
+wstring StrToWStr(string str);
+wstring GetEnvironmentVariableW(wstring name);
+bool TestLogEnabled();
+void TestLog(string msg);
 
 #define MICROKEYS_MUTEX L"MicroKeys_nZ3SC4MxQsEfQlmmWhc2WaELCZrGdam1IGrOh7XL"
 #define CDS_INVOKE_MACRO	1001

@@ -30,6 +30,18 @@ KEYS = """
 {"id": "2F", "const": "HELP", "help": "The help key (not F1).", "desc": "Help"}
 {"id": "90", "const": ["NUMLOCK", "NUM_LOCK", "NUM"], "help": "The num lock key.", "desc": "NumLock"}
 {"id": "91", "const": ["SCROLLLOCK", "SCROLL_LOCK", "SCROLL"], "help": "The scroll lock key.", "desc": "ScrollLock"}
+{"id": "BA", "const": ["SEMI_COLON", "SEMI", "SEMICOLON"], "help": "The ';' key.", "desc": "SemiColon"}
+{"id": "BB", "const": "PLUS", "help": "The '+' key.", "desc": "Plus"}
+{"id": "BC", "const": "COMMA", "help": "The ',' key.", "desc": "Comma"}
+{"id": "BD", "const": ["MINUS", "DASH"], "help": "The '-' key.", "desc": "Minus"}
+{"id": "BE", "const": ["PERIOD", "DOT"], "help": "The '.' key.", "desc": "Period"}
+{"id": "BF", "const": ["SLASH", "FORWARD_SLASH", "FORWARDSLASH"], "help": "The '/' key.", "desc": "Slash"}
+{"id": "C0", "const": ["BACK_QUOTE", "BACKQUOTE"], "help": "The '`' key.", "desc": "BackQuote"}
+{"id": "DB", "const": ["OPEN_BRACKET", "OPENBRACKET"], "help": "The '[' key.", "desc": "OpenBracket"}
+{"id": "DC", "const": ["BACK_SLASH", "BACKSLASH"], "help": "The '\' key.", "desc": "BackSlash"}
+{"id": "DD", "const": ["CLOSE_BRACKET", "CLOSEBRACKET"], "help": "The ']' key.", "desc": "CloseBracket"}
+{"id": "DE", "const": ["QUOTE", "SINGLE_QUOTE", "SINGLEQUOTE"], "help": "The ''' key.", "desc": "SingleQuote"}
+
 
 {"id": "100", "const": "ALT", "help": "The alt modifier key.", "desc": "Alt", "modifier": true}
 {"id": "200", "const": ["CONTROL", "CTRL"], "help": "The control modifier key.", "desc": "Control", "modifier": true}
@@ -71,7 +83,7 @@ def handle_py_module_impl(prev, keys):
                 ret.append(f'case 0x{key["id"]}: AddDesc(desc, "{key["desc"]}"); break;')
         ret.append('default: AddDesc(desc, "<Unknown>"); break;')
         ret.append('}')
-    elif "" in prev[0]:
+    elif "CurlyDesc" in prev[0]:
         ret.append("/* Section CurlyDesc */")
         first = ""
         for key in keys:
@@ -79,6 +91,14 @@ def handle_py_module_impl(prev, keys):
                 if len(const) > 1:
                     ret.append(first + f'if (curly == "{const}") {{ press_key(0, 0x{key["id"]}, shiftState, altState, ctrlState); }}')
                     first = "else "
+    elif "TestLog" in prev[0]:
+        ret.append("/* Section TestLog */")
+        first = ""
+        for key in keys:
+            ret.append(first + f'if (vk == 0x{key["id"]}) {{ TestLog("  Key: {key["desc"]} press"); }}')
+            first = "else "
+    else:
+        raise Exception()
     return ret
 
 def handle_py_module(prev, keys):
@@ -105,7 +125,11 @@ def main():
     for cur in KEYS.split("\n"):
         cur = cur.strip()
         if len(cur):
-            key = json.loads(cur)
+            try:
+                key = json.loads(cur)
+            except:
+                print(cur)
+                raise
             for val in key.get("range", [None]):
                 if val is not None:
                     for prop in ['desc', 'const', 'help']:

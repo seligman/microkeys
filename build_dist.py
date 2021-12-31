@@ -233,6 +233,7 @@ def main():
     if BUILD_EXE:
         run("python3 get_micropython.py")
         build_exe()
+        run("python3 " + os.path.join("tests", "run_all.py") + " Release")
     data = make_zip()
     if INCLUDE_VIRUSTOTAL:
         vt_url = get_vt_url(data)

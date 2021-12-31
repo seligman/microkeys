@@ -1,0 +1,31 @@
+key.press("+abc%(123)~{up}")
+  Key: Shift down
+  Key: A press
+  Key: Shift up
+  Key: B press
+  Key: C press
+  Key: Alt down
+  Key: 1 press
+  Key: 2 press
+  Key: 3 press
+  Key: Alt up
+  Key: Enter press
+  Key: Up press
+keys.press_raw("+{!")
+  Key: Shift down
+  Key: Plus press
+  Key: OpenBracket press
+  Key: 1 press
+  Key: Shift up
+keys.press_raw("simple test")
+  Key: S press
+  Key: I press
+  Key: M press
+  Key: P press
+  Key: L press
+  Key: E press
+  Key: Space press
+  Key: T press
+  Key: E press
+  Key: S press
+  Key: T press

@@ -76,6 +76,7 @@ int run_micro_python(const char* code) {
 }
 
 int run_fun(void* fun) {
+    mp_stack_ctrl_init();
     mp_hal_set_interrupt_char(CHAR_CTRL_C);
 
     nlr_buf_t nlr;

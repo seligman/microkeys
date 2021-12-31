@@ -9,6 +9,30 @@ HWND _hWndEdit = NULL;
 bool _handleHotkeys = true;
 vector<KeyData> _keys;
 
+wstring StrToWStr(string str) {
+	return wstring_convert<codecvt_utf8<wchar_t>, wchar_t>().from_bytes(str);
+}
+
+string WStrToStr(wstring wstr) {
+	return wstring_convert<codecvt_utf8<wchar_t>, wchar_t>().to_bytes(wstr);
+}
+
+bool TestLogEnabled() {
+	return GetEnvironmentVariableW(L"MICROKEYS_LOG").length() > 0;
+}
+
+void TestLog(string msg) {
+	wstring filename = GetEnvironmentVariableW(L"MICROKEYS_LOG");
+	HANDLE hFile = CreateFile(filename.c_str(), FILE_APPEND_DATA, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hFile != NULL && hFile != INVALID_HANDLE_VALUE)
+	{
+		msg += "\r\n";
+		SetFilePointer(hFile, 0, NULL, FILE_END);
+		WriteFile(hFile, msg.c_str(), (DWORD)(msg.length()), NULL, NULL);
+		CloseHandle(hFile);
+	}
+}
+
 vector<KeyData>& GetKeys() {
 	return _keys;
 }
@@ -18,6 +42,10 @@ HWND GetMainWindow() {
 }
 
 void DoEvents() {
+	if (_hWndEdit == NULL) {
+		return;
+	}
+
 	_handleHotkeys = false;
 	MSG msg;
 	while (PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE)) {
@@ -50,11 +78,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 	if (argc == 2) {
 		HWND hWnd = FindWindow(_windowClass.c_str(), _title.c_str());
 		COPYDATASTRUCT cds = { 0 };
-		char temp[1000] = { 0 };
-		WideCharToMultiByte(CP_UTF8, 0, argv[1], (int)wcslen(argv[1]), temp, 1000, NULL, NULL);
+		string temp = WStrToStr(argv[1]);
 		cds.dwData = CDS_INVOKE_MACRO;
-		cds.cbData = (int)strlen(temp) + 1;
-		cds.lpData = temp;
+		cds.cbData = (DWORD)temp.length();
+		cds.lpData = (void*)temp.c_str();
 		SendMessage(hWnd, WM_COPYDATA, 0, (LPARAM)&cds);
 		return 0;
 	}
@@ -64,6 +91,20 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 		HWND hWnd = FindWindow(_windowClass.c_str(), _title.c_str());
 		ShowWindow(hWnd, SW_SHOWNORMAL);
 		SetForegroundWindow(hWnd);
+		return 0;
+	}
+
+	wstring run = GetEnvironmentVariableW(L"MICROKEYS_RUN");
+	if (run.length() > 0) {
+		string runA = WStrToStr(run);
+		LoadPython();
+		for (auto& key : _keys) {
+			if (key.Name == runA) {
+				WaitForKeyboard();
+				run_fun(key.PythonFunction);
+				break;
+			}
+		}
 		return 0;
 	}
 
@@ -144,6 +185,10 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow) {
 }
 
 void LogMessage(string msg) {
+	if (_hWndEdit == NULL) {
+		return;
+	}
+	msg += "\r\n";
 	int index = GetWindowTextLength(_hWndEdit);
 	// Escape hatch for the input box getting too big
 	if (SendMessage(_hWndEdit, WM_GETTEXTLENGTH, 0, 0) > 10 * 1024 * 1024) {
@@ -189,7 +234,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 	case WM_HOTKEY:
 		if (_handleHotkeys && (int)wParam <= _keys.size() && wParam > 0) {
 			stringstream ss;
-			ss << "Keypress of " << _keys[wParam - 1].Description << " detected\r\n";
+			ss << "Keypress of " << _keys[wParam - 1].Description << " detected";
 			LogMessage(ss.str());
 			WaitForKeyboard();
 			run_fun(_keys[wParam - 1].PythonFunction);
@@ -224,13 +269,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 	{
 		COPYDATASTRUCT* cds = (COPYDATASTRUCT*)lParam;
 		if (cds->dwData == CDS_INVOKE_MACRO) {
-			for (auto key : _keys) {
-				if (strcmp(key.Name.c_str(), (const char*)cds->lpData) == 0) {
+			string target((char*)cds->lpData, cds->cbData);
+			for (auto& key : _keys) {
+				if (key.Name == target) {
 					stringstream ss;
-					ss << "Macro '" << key.Name << "' called\r\n";
+					ss << "Macro '" << key.Name << "' called";
 					LogMessage(ss.str());
 					WaitForKeyboard();
 					run_fun(key.PythonFunction);
+					break;
 				}
 			}
 		}
@@ -263,6 +310,9 @@ INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
 }
 
 void WaitForKeyboard() {
+	if (_hWndMain == NULL) {
+		return;
+	}
 	for (int bail = 0; bail < 50; bail++) {
 		bool hit = false;
 		for (int vk = 0x08; vk <= 0xC0; vk++) {
@@ -281,8 +331,21 @@ void WaitForKeyboard() {
 	}
 }
 
+wstring GetEnvironmentVariableW(wstring name) {
+	DWORD len = GetEnvironmentVariableW(name.c_str(), NULL, 0);
+	if (len > 0) {
+		len++;
+		vector<wchar_t> buffer(len);
+		len = GetEnvironmentVariableW(name.c_str(), buffer.data(), len);
+		if (len > 0) {
+			return wstring(buffer.data(), len);
+		}
+	}
+	return L"";
+}
+
 void LoadPython() {
-	for (auto key : _keys) {
+	for (auto& key : _keys) {
 		if (key.VK != 0) {
 			UnregisterHotKey(_hWndMain, key.ID);
 		}
@@ -290,28 +353,39 @@ void LoadPython() {
 	_keys.clear();
 	// TODO: Need to clean up memory from any previous runs.
 
-	HANDLE hFile = CreateFile(
 #ifdef _DEBUG
-		_T("macro\\MicroKeys.py"), 
+	wstring code_filename = L"macro\\MicroKeys.py";
 #else
-		_T("MicroKeys.py"),
+	wstring code_filename = L"MicroKeys.py";
 #endif
+	wstring other_filename = GetEnvironmentVariableW(L"MICROKEYS_SOURCE");
+	if (other_filename.size() > 0) {
+		code_filename = other_filename;
+	}
+
+	HANDLE hFile = CreateFile(
+		code_filename.c_str(),
 		GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
 	if (hFile == INVALID_HANDLE_VALUE) {
-		LogMessage("Unable to open MicroKeys.py\r\n");
+		stringstream ss;
+		using convert_type = codecvt_utf8<wchar_t>;
+		wstring_convert<convert_type, wchar_t> converter;
+
+		ss << "Unable to open " << converter.to_bytes(code_filename);
+		LogMessage(ss.str());
 		return;
 	}
 
 	DWORD len = GetFileSize(hFile, NULL);
 	char* data = (char*)malloc((size_t)len + 1);
 	if (data == NULL) {
-		LogMessage("Failure reading data\r\n");
+		LogMessage("Failure reading data");
 		return;
 	}
 
 	memset(data, 0, (size_t)len + 1);
 	if (!ReadFile(hFile, data, len, NULL, NULL)) {
-		LogMessage("Unable to read data\r\n");
+		LogMessage("Unable to read data");
 		return;
 	}
 
@@ -319,7 +393,7 @@ void LoadPython() {
 	free(data);
 	if (ret != 0) {
 		stringstream ss;
-		ss << "Call returned: " << ret << "\r\n";
+		ss << "Call returned: " << ret;
 		LogMessage(ss.str());
 	}
 }
