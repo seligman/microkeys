@@ -20,6 +20,7 @@ extern "C" {
 	int run_fun(void* fun);
 	char* clip_copy_invoke();
 	void clip_paste_invoke(const char*);
+	char* get_micropython_ver();
 }
 ATOM MyRegisterClass(HINSTANCE hInstance);
 BOOL InitInstance(HINSTANCE, int);

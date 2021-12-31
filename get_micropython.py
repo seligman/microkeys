@@ -88,6 +88,10 @@ int run_fun(void* fun) {
     }
     return 0;
 }
+
+char* get_micropython_ver() {
+    return MICROPY_VERSION_STRING;
+}
     """.strip() + "\n"
     return data
 

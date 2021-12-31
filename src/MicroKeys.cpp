@@ -296,7 +296,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
 	switch (message) {
 	case WM_INITDIALOG:
+	{
 		SendDlgItemMessage(hDlg, IDC_VERSION, WM_SETTEXT, 0, (LPARAM)_T("Version ") VERSION_TEXT_T _T(", Copyright \xA9 ") VERSION_YEAR_T);
+
+		wstringstream ss;
+		ss << L"Includes MicroPython v" << StrToWStr(get_micropython_ver());
+		SendDlgItemMessage(hDlg, IDC_MP_VERSION, WM_SETTEXT, 0, (LPARAM)ss.str().c_str());
+	}
 		return (INT_PTR)TRUE;
 
 	case WM_COMMAND:

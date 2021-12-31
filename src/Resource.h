@@ -2,7 +2,10 @@
 // Microsoft Visual C++ generated include file.
 // Used by MicroKeys.rc
 //
+#define VERSION_1                       0
+#define VERSION_2                       0
 #define IDC_MYICON                      2
+#define VERSION_3                       4
 #define IDD_MICROKEYS_DIALOG            102
 #define IDS_APP_TITLE                   103
 #define IDD_ABOUTBOX                    103
@@ -12,6 +15,7 @@
 #define IDC_MICROKEYS                   109
 #define IDR_MAINFRAME                   128
 #define IDC_VERSION                     1000
+#define IDC_MP_VERSION                  1001
 #define ID_FILE_RELOADPYTHON            32771
 #define IDC_STATIC                      -1
 
