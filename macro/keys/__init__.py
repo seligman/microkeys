@@ -276,6 +276,15 @@ def press(keys: str) -> None:
 
     print(f"key.press('{keys}')")
 
+def log(msg: str) -> None:
+    """Logs a message to the display of MicroKeys
+
+    No other action is taken, this is only to log message to help with debugging 
+    and/or running macros.
+    """
+
+    print(f"key.log('{msg}')")
+
 def press_raw(keys: str) -> None:
     """Performs a series of key presses
 

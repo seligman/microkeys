@@ -18,6 +18,14 @@ STATIC mp_obj_t clip_paste(mp_obj_t a_obj) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(clip_paste_obj, clip_paste);
 
+/* ----- keys.log ---------------------------------------------------------- */
+void keys_log_invoke(const char*);
+STATIC mp_obj_t keys_log(mp_obj_t a_obj) {
+    keys_log_invoke(mp_obj_str_get_str(a_obj));
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(keys_log_obj, keys_log);
+
 /* ----- keys.press -------------------------------------------------------- */
 void keys_press_invoke(const char*);
 STATIC mp_obj_t keys_press(mp_obj_t a_obj) {
@@ -167,17 +175,57 @@ STATIC mp_obj_t windows_get_active(void) {
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(windows_get_active_obj, windows_get_active);
 
 /* ----- windows.set_active ------------------------------------------------ */
-void set_active_impl(const char* handle);
+void windows_set_active_impl(const char* handle);
 STATIC mp_obj_t windows_set_active(mp_obj_t a_obj) {
-    set_active_impl(mp_obj_str_get_str(a_obj));
+    windows_set_active_impl(mp_obj_str_get_str(a_obj));
     return MP_ROM_NONE;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(windows_set_active_obj, windows_set_active);
+
+/* ----- windows.get_position ---------------------------------------------- */
+void windows_get_position_impl(const char* handle, int* x, int* y, int* width, int* height);
+STATIC mp_obj_t windows_get_position(mp_obj_t a_obj) {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    windows_get_position_impl(mp_obj_str_get_str(a_obj), &x, &y, &width, &height);
+    mp_obj_t items[] = {
+        mp_obj_new_int(x),
+        mp_obj_new_int(y),
+        mp_obj_new_int(width),
+        mp_obj_new_int(height),
+    };
+    return mp_obj_new_tuple(4, items);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(windows_get_position_obj, windows_get_position);
+
+/* ----- windows.set_position ---------------------------------------------- */
+void windows_set_position_impl(const char* handle, int x, int y, int width, int height);
+STATIC mp_obj_t windows_set_position(size_t n_args, const mp_obj_t* args) {
+    windows_set_position_impl(
+        mp_obj_str_get_str(args[0]),
+        mp_obj_get_int(args[1]),
+        mp_obj_get_int(args[2]),
+        mp_obj_get_int(args[3]),
+        mp_obj_get_int(args[4]));
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(windows_set_position_obj, 5, 5, windows_set_position);
+
+/* ----- windows.launch ---------------------------------------------------- */
+void windows_launch_impl(const char* command_line);
+STATIC mp_obj_t windows_launch(mp_obj_t a_obj) {
+    windows_launch_impl(mp_obj_str_get_str(a_obj));
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(windows_launch_obj, windows_launch);
 
 /* ----- Connection Glue --------------------------------------------------- */
 /*       keys module                                                         */
 STATIC const mp_rom_map_elem_t keys_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_keys) },
+    { MP_ROM_QSTR(MP_QSTR_log), MP_ROM_PTR(&keys_log_obj) },
     { MP_ROM_QSTR(MP_QSTR_press), MP_ROM_PTR(&keys_press_obj) },
     { MP_ROM_QSTR(MP_QSTR_press_raw), MP_ROM_PTR(&keys_press_raw_obj) },
     { MP_ROM_QSTR(MP_QSTR_key), MP_ROM_PTR(&keys_key_obj) },
@@ -353,6 +401,9 @@ STATIC const mp_rom_map_elem_t windows_module_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_list_all), MP_ROM_PTR(&windows_list_all_obj) },
     { MP_ROM_QSTR(MP_QSTR_get_active), MP_ROM_PTR(&windows_get_active_obj) },
     { MP_ROM_QSTR(MP_QSTR_set_active), MP_ROM_PTR(&windows_set_active_obj) },
+    { MP_ROM_QSTR(MP_QSTR_get_position), MP_ROM_PTR(&windows_get_position_obj) },
+    { MP_ROM_QSTR(MP_QSTR_set_position), MP_ROM_PTR(&windows_set_position_obj) },
+    { MP_ROM_QSTR(MP_QSTR_launch), MP_ROM_PTR(&windows_launch_obj) },
 };
 STATIC MP_DEFINE_CONST_DICT(windows_module_globals, windows_module_globals_table);
 const mp_obj_module_t windows_user_cmodule = {

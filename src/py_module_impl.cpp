@@ -227,6 +227,17 @@ void press_key(char key, SHORT vk, ModState& shiftState, ModState& altState, Mod
 	}
 }
 
+extern "C" void keys_log_invoke(const char* msg) {
+	if (TestLogEnabled()) {
+		stringstream ss;
+		ss << "key.log(\"" << msg << "\")";
+		TestLog(ss.str());
+	}
+	stringstream ss;
+	ss << "keys.log('" << msg << "')";
+	LogMessage(ss.str());
+}
+
 extern "C" void keys_press_invoke(const char* msg) {
 	if (TestLogEnabled()) {
 		stringstream ss;
@@ -784,7 +795,7 @@ extern "C" void windows_list_all_impl(void*** list, int* count) {
 	return;
 }
 
-extern "C" void set_active_impl(const char* handle) {
+extern "C" void windows_set_active_impl(const char* handle) {
 	if (TestLogEnabled()) {
 		stringstream ss;
 		ss << "windows.set_active(\"" << handle << "\")";
@@ -797,4 +808,53 @@ extern "C" void set_active_impl(const char* handle) {
 
 	ShowWindow(StrToHandle(handle), SW_SHOWNORMAL);
 	SetForegroundWindow(StrToHandle(handle));
+}
+
+extern "C" void windows_get_position_impl(const char* handle, int* x, int* y, int* width, int* height) {
+	if (TestLogEnabled()) {
+		stringstream ss;
+		ss << "windows.get_position(\"" << handle << "\")";
+		TestLog(ss.str());
+		*x = 0;
+		*y = 0;
+		*width = 100;
+		*height = 100;
+		return;
+	}
+
+	stringstream ss;
+	ss << "windows.get_position(\"" << handle << "\")";
+	LogMessage(ss.str());
+
+	WINDOWPLACEMENT wp = { 0 };
+	GetWindowPlacement(StrToHandle(handle), &wp);
+	*x = wp.rcNormalPosition.left;
+	*y = wp.rcNormalPosition.top;
+	*width = wp.rcNormalPosition.right - wp.rcNormalPosition.left;
+	*height = wp.rcNormalPosition.bottom - wp.rcNormalPosition.top;
+}
+
+extern "C" void windows_set_position_impl(const char* handle, int x, int y, int width, int height) {
+	if (TestLogEnabled()) {
+		stringstream ss;
+		ss << "windows.set_position(\"" << handle << "\", " << x << ", " << y << ", " << width << ", " << height << ")";
+		TestLog(ss.str());
+		return;
+	}
+
+	stringstream ss;
+	ss << "windows.set_position(\"" << handle << "\", " << x << ", " << y << ", " << width << ", " << height << ")";
+	LogMessage(ss.str());
+	MoveWindow(StrToHandle(handle), x, y, width, height, TRUE);
+}
+
+extern "C" void windows_launch_impl(const char* command_line) {
+	STARTUPINFOA si = { 0 };
+	si.cb = sizeof(STARTUPINFOA);
+	PROCESS_INFORMATION pi = { 0 };
+	char * copy = _strdup(command_line);
+	CreateProcessA(NULL, copy, NULL, NULL, FALSE, NORMAL_PRIORITY_CLASS, NULL, NULL, &si, &pi);
+	free(copy);
+	CloseHandle(pi.hThread);
+	CloseHandle(pi.hProcess);
 }
