@@ -5,65 +5,87 @@ import os
 import sys
 import re
 
-os.chdir(os.path.split(__file__)[0])
+def main(release_type, target_tests):
+    os.chdir(os.path.split(__file__)[0])
 
-if len(sys.argv) != 2:
-    print("Need to specify Debug or Release to run")
-    exit(1)
+    exe = os.path.join("..", "x64", release_type, "MicroKeys.exe")
+    if not os.path.isfile(exe):
+        print("ERROR: Unable to find " + exe)
+        exit(1)
 
+    print("Running tests...")
+    good = 0
+    for cur in sorted(os.listdir(".")):
+        if cur.startswith("test_") and cur.endswith(".py"):
+            run_test = True
+            if target_tests is not None:
+                run_test = False
+                if cur[5:-3].lower() in target_tests:
+                    run_test = True
 
-exe = os.path.join("..", "x64", sys.argv[1], "MicroKeys.exe")
-if not os.path.isfile(exe):
-    print("ERROR: Unable to find " + exe)
+            if run_test:
+                expected = cur[:-3] + ".txt"
 
-print("Running tests...")
-good = 0
-for cur in sorted(os.listdir(".")):
-    if cur.startswith("test_") and cur.endswith(".py"):
-        expected = cur[:-3] + ".txt"
+                tests = []
+                with open(cur) as f:
+                    for row in f:
+                        m = re.search('@keys.key\\("(?P<test>.*)"\\)', row)
+                        if m is not None:
+                            if "," in m.group("test"):
+                                raise Exception(f"Tests names can not contain commas, see '{m.group('test')}' in {cur}")
+                            tests.append(m.group("test"))
 
-        tests = []
-        with open(cur) as f:
-            for row in f:
-                m = re.search('@keys.key\\("(?P<test>.*)"\\)', row)
-                if m is not None:
-                    tests.append(m.group("test"))
+                temp = "temp_output.txt"
+                if os.path.isfile(temp):
+                    os.unlink(temp)
 
-        temp = "temp_output.txt"
-        if os.path.isfile(temp):
-            os.unlink(temp)
+                if len(tests) == 0:
+                    raise Exception(f"Unable to find tests in {cur}")
 
-        if len(tests) == 0:
-            raise Exception(f"Unable to find tests in {cur}")
+                os.environ["MICROKEYS_LOG"] = temp
+                os.environ["MICROKEYS_RUN"] = ",".join(tests)
+                os.environ["MICROKEYS_SOURCE"] = cur
 
-        os.environ["MICROKEYS_LOG"] = temp
-        os.environ["MICROKEYS_RUN"] = ",".join(tests)
-        os.environ["MICROKEYS_SOURCE"] = cur
+                try:
+                    subprocess.check_call([exe])
+                except:
+                    for key, value in os.environ.items():
+                        if key.startswith("MICROKEYS_"):
+                            print(f"{key}={value}")
+                    raise
 
-        try:
-            subprocess.check_call([exe])
-        except:
-            for key, value in os.environ.items():
-                if key.startswith("MICROKEYS_"):
-                    print(f"{key}={value}")
-            raise
+                if os.path.isfile(expected):
+                    with open(expected) as f:
+                        expected_data = f.read()
+                    with open(temp) as f:
+                        test_data = f.read()
+                    if test_data != expected_data:
+                        print(f"ERROR: {cur} did not complete properly!")
+                        print(f"Compare {temp} to {expected}")
+                        exit(1)
+                else:
+                    print(f"WARNING: {cur} does not have test results")
+                    print(f"Check {temp}, and if it's good, rename it to {expected}")
+                    exit(1)
+                
+                os.unlink(temp)
+                good += 1
+                print(f"{good:3d}: {cur[5:-3]} is good.")
 
-        if os.path.isfile(expected):
-            with open(expected) as f:
-                expected_data = f.read()
-            with open(temp) as f:
-                test_data = f.read()
-            if test_data != expected_data:
-                print(f"ERROR: {cur} did not complete properly!")
-                print(f"Compare {temp} to {expected}")
-                exit(1)
-        else:
-            print(f"WARNING: {cur} does not have test results")
-            print(f"Check {temp}, and if it's good, rename it to {expected}")
-            exit(1)
-        
-        os.unlink(temp)
-        good += 1
-        print(f"{good:3d}: {cur[5:-3]} is good.")
+    if good == 1:
+        print("Test ran without problems")
+    else:
+        print(f"All {good} tests are good")
 
-print(f"All {good} tests are good")
+if __name__ == "__main__":
+    build_type = None
+    tests = None
+    if len(sys.argv) > 1:
+        build_type = sys.argv[1]
+    if len(sys.argv) > 2:
+        tests = set(sys.argv[2].lower().split(","))
+    if build_type is None or build_type.lower() not in {"debug", "release"}:
+        print("Usage:")
+        print("  run_all.py <Debug|Release> (<tests to run>)")
+        exit(1)
+    main(build_type, tests)
