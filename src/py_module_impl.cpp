@@ -692,3 +692,109 @@ extern "C" void mouse_click_invoke(int left_down, int left_up, int right_down, i
 	if (right_down) { mouse_helper(MOUSEEVENTF_RIGHTDOWN, VK_RBUTTON, 0x8000); }
 	if (right_up) { mouse_helper(MOUSEEVENTF_RIGHTUP, VK_RBUTTON, 0x0000); }
 }
+
+string GetWindowText(HWND hwnd) {
+	int len = GetWindowTextLengthA(hwnd);
+	if (len > 0) {
+		len++;
+		vector<char> buffer(len);
+		len = GetWindowTextA(hwnd, buffer.data(), len);
+		if (len > 0) {
+			return string(buffer.data(), len);
+		}
+	}
+	return "";
+}
+
+string GetClassName(HWND hwnd) {
+	int len = 250;
+	vector<char> buffer((size_t)len + 1);
+	len = GetClassNameA(hwnd, buffer.data(), len);
+	if (len > 0) {
+		return string(buffer.data(), len);
+	}
+	return "";
+}
+
+string HandleToStr(HWND hwnd) {
+	stringstream ss;
+	ss << hex << (unsigned long long) hwnd;
+	return ss.str();
+}
+
+HWND StrToHandle(string hwnd) {
+	unsigned long long ret;
+	stringstream ss;
+	ss << hex << hwnd;
+	ss >> ret;
+	return (HWND)ret;
+}
+
+extern "C" void* make_windows_tuple(const char* handle, const char* title, const char* classname);
+extern "C" void* windows_get_active_impl() {
+	if (TestLogEnabled()) {
+		TestLog("get_active()");
+		return make_windows_tuple("01", "Win Title", "Win Class");
+	}
+
+	LogMessage("get_active()");
+	HWND hwnd = GetForegroundWindow();
+	string title = GetWindowText(hwnd);
+	string classname = GetClassName(hwnd);
+	return make_windows_tuple(HandleToStr(hwnd).c_str(), title.c_str(), classname.c_str());
+}
+
+vector<void*> _windows;
+BOOL CALLBACK EnumWindowsProc(_In_ HWND hwnd, _In_ LPARAM lParam) {
+	if (IsWindowVisible(hwnd)) {
+		LONG style = GetWindowLong(hwnd, GWL_STYLE);
+		if ((style & WS_CHILD) == 0) {
+			string title = GetWindowText(hwnd);
+			string classname = GetClassName(hwnd);
+			_windows.push_back(make_windows_tuple(HandleToStr(hwnd).c_str(), title.c_str(), classname.c_str()));
+		}
+	}
+	return TRUE;
+}
+extern "C" void windows_list_all_impl(void*** list, int* count) {
+	if (TestLogEnabled()) {
+		TestLog("list_all()");
+		void** temp = (void**)malloc(sizeof(void*) * 2);
+		if (temp) {
+			temp[0] = make_windows_tuple("01", "Win Title 1", "Win Class 1");
+			temp[1] = make_windows_tuple("02", "Win Title 2", "Win Class 2");
+		}
+		*list = temp;
+		*count = 2;
+		return;
+	}
+	LogMessage("list_all()");
+	_windows.clear();
+	EnumWindows(EnumWindowsProc, NULL);
+	void** temp = (void**)malloc(sizeof(void*) * _windows.size());
+	if (temp) {
+		int i = 0;
+		for (auto& cur : _windows) {
+			temp[i] = cur;
+			i++;
+		}
+	}
+	*list = temp;
+	*count = (int)_windows.size();
+	return;
+}
+
+extern "C" void set_active_impl(const char* handle) {
+	if (TestLogEnabled()) {
+		stringstream ss;
+		ss << "windows.set_active(\"" << handle << "\")";
+		TestLog(ss.str());
+		return;
+	}
+	stringstream ss;
+	ss << "windows.set_active(\"" << handle << "\")";
+	LogMessage(ss.str());
+
+	ShowWindow(StrToHandle(handle), SW_SHOWNORMAL);
+	SetForegroundWindow(StrToHandle(handle));
+}

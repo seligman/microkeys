@@ -10,6 +10,6 @@ To run this locally, download the [latest release](https://github.com/seligman/m
 
 If you want to run this from source, you'll need Visual Studio, along with Python 3.9+ and Git in your path.  To run the POC, sync this project down, then run `get_micropython.py` to sync down MicroPython and patch it to be built as a library in a windows GUI app.  Then you can open the VS solution, and run it.
 
-There is much work necessary to get this to an alpha release, you can track the [status here](TODO.md).
+It's currently in a beta state.  There is much work necessary to get this to a final release, you can track the [status here](TODO.md).
 
 Questions? Feedback? [E-mail me](mailto:scott.seligman@gmail.com).

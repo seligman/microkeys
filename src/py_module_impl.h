@@ -11,4 +11,7 @@ extern "C" {
 	void mouse_position_invoke(int* x, int* y);
 	void mouse_move_invoke(int x, int y, int offset);
 	void mouse_click_invoke(int left_down, int left_up, int right_down, int right_up);
+	void* windows_get_active_impl();
+	void windows_list_all_impl(void*** list, int* count);
+	void set_active_impl(const char* handle);
 }

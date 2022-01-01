@@ -325,15 +325,22 @@ void WaitForKeyboard() {
 		bool hit = false;
 		for (int vk = 0x08; vk <= 0xC0; vk++) {
 			if ((GetAsyncKeyState(vk) & 0x8000) == 0x8000) {
+#ifdef _DEBUG
+				stringstream ss;
+				ss << hex << "Detected VK 0x" << vk;
+				LogMessage(ss.str());
+#endif
 				hit = true;
 				break;
 			}
 		}
 		if (hit) {
 			Sleep(100);
-			DoEvents();
 		}
 		else {
+#ifdef _DEBUG
+			LogMessage("Keyboard ready");
+#endif
 			break;
 		}
 	}

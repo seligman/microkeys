@@ -1,0 +1,5 @@
+get_active()
+clip.paste("('01', 'Win Title', 'Win Class')")
+list_all()
+clip.paste("[('01', 'Win Title 1', 'Win Class 1'), ('02', 'Win Title 2', 'Win Class 2')]")
+windows.set_active("01")

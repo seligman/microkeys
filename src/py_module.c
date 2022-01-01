@@ -136,6 +136,44 @@ STATIC mp_obj_t mouse_right_up(void) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(mouse_right_up_obj, mouse_right_up);
 
+/* ----- windows.list_all -------------------------------------------------- */
+mp_obj_t make_windows_tuple(const char* handle, const char* title, const char* classname) {
+    mp_obj_t mpHandle = mp_obj_new_str(handle, strlen(handle));
+    mp_obj_t mpTitle = mp_obj_new_str(title, strlen(title));
+    mp_obj_t mpClass = mp_obj_new_str(classname, strlen(classname));
+    mp_obj_t items[] = { mpHandle, mpTitle, mpClass };
+    return mp_obj_new_tuple(3, items);
+}
+
+void windows_list_all_impl(mp_obj_t** list, int* count);
+STATIC mp_obj_t windows_list_all(void) {
+    mp_obj_t* source_list = NULL;
+    int count = 0;
+    windows_list_all_impl(&source_list, &count);
+    mp_obj_list_t* lst = MP_OBJ_TO_PTR(mp_obj_new_list(count, NULL));
+    for (int i = 0; i < count; ++i) {
+        lst->items[i] = source_list[i];
+    }
+    free(source_list);
+    return MP_OBJ_FROM_PTR(lst);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(windows_list_all_obj, windows_list_all);
+
+/* ----- windows.get_active ------------------------------------------------ */
+void* windows_get_active_impl();
+STATIC mp_obj_t windows_get_active(void) {
+    return (mp_obj_t)windows_get_active_impl();
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_0(windows_get_active_obj, windows_get_active);
+
+/* ----- windows.set_active ------------------------------------------------ */
+void set_active_impl(const char* handle);
+STATIC mp_obj_t windows_set_active(mp_obj_t a_obj) {
+    set_active_impl(mp_obj_str_get_str(a_obj));
+    return MP_ROM_NONE;
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(windows_set_active_obj, windows_set_active);
+
 /* ----- Connection Glue --------------------------------------------------- */
 /*       keys module                                                         */
 STATIC const mp_rom_map_elem_t keys_module_globals_table[] = {
@@ -308,3 +346,17 @@ const mp_obj_module_t mouse_user_cmodule = {
     .globals = (mp_obj_dict_t*)&mouse_module_globals,
 };
 MP_REGISTER_MODULE(MP_QSTR_mouse, mouse_user_cmodule, 1);
+
+/*       windows module                                                      */
+STATIC const mp_rom_map_elem_t windows_module_globals_table[] = {
+    { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_windows) },
+    { MP_ROM_QSTR(MP_QSTR_list_all), MP_ROM_PTR(&windows_list_all_obj) },
+    { MP_ROM_QSTR(MP_QSTR_get_active), MP_ROM_PTR(&windows_get_active_obj) },
+    { MP_ROM_QSTR(MP_QSTR_set_active), MP_ROM_PTR(&windows_set_active_obj) },
+};
+STATIC MP_DEFINE_CONST_DICT(windows_module_globals, windows_module_globals_table);
+const mp_obj_module_t windows_user_cmodule = {
+    .base = { &mp_type_module },
+    .globals = (mp_obj_dict_t*)&windows_module_globals,
+};
+MP_REGISTER_MODULE(MP_QSTR_windows, windows_user_cmodule, 1);
