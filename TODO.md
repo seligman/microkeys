@@ -31,7 +31,8 @@ Items needed to get past a beta release:
 - [ ] Documentation, including mock packages to make development easier.
 - [ ] Add support and examples for parsing CSV and JSON strings.
 - [ ] Hook up exception handling to log errors.
-- [ ] Log stdout/stderr to the application itself.
+- [ ] Auto reload python script when the file changes.
+- [x] Log stdout/stderr to the application itself.
 - [ ] Some memory leak testing, fixing of all the bugs.
 - [ ] Improve UI.
 - [ ] A proper installer.

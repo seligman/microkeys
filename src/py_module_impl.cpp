@@ -83,6 +83,14 @@ public:
 	}
 };
 
+extern "C" void handle_print_impl(int fd, void* buf, int len) {
+	while (len > 0 && (((char*)buf)[len - 1] == '\n' || ((char*)buf)[len - 1] == '\r')) {
+		len--;
+	}
+	string str((char*)buf, len);
+	LogMessage((fd == 1 ? "STDOUT: " : "STDERR: ") + str);
+}
+
 void press_key(char key, SHORT vk, ModState& shiftState, ModState& altState, ModState& ctrlState) {
 	UINT scanCode = 0;
 	UINT extended = 0;

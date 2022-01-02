@@ -126,12 +126,33 @@ def fix_print(data):
     for i, row in enumerate(data):
         if "mp_obj_t mp_builtin_print" in row:
             data = data[:i+1] + [
-                "// TODO: Fix print handling",
-                "return mp_const_none;",
+                "// TODO: return mp_const_none;",
             ] + data[i+1:]
             break
     data = "\n".join(data)
     return data
+
+
+def fix_stream(data):
+    if data is None:
+        return "py/stream.c"
+
+    ret = []
+    data = data.split("\n")
+    for row in data:
+        if "mp_uint_t mp_stream_rw" in row:
+            ret.append('extern struct _mp_dummy_t mp_sys_stdout_obj;')
+            ret.append('extern struct _mp_dummy_t mp_sys_stderr_obj;')
+            ret.append('void handle_print_impl(int fd, void* buf, int len);')
+        ret.append(row)
+        if "mp_uint_t done = 0;" in row:
+            ret.append('    if (stream == MP_ROM_PTR(&mp_sys_stdout_obj)) {')
+            ret.append('        handle_print_impl(1, buf, size); return size;')
+            ret.append('    } else if (stream == MP_ROM_PTR(&mp_sys_stderr_obj)) {')
+            ret.append('        handle_print_impl(2, buf, size); return size;')
+            ret.append('    }')
+
+    return "\n".join(ret)
 
 
 def main():
@@ -144,10 +165,15 @@ def main():
         print("Already have MicroPython")
         os.chdir("micropython")
 
-    patch_wrapper(fix_main)
-    patch_wrapper(fix_project)
-    patch_wrapper(fix_print)
-    patch_wrapper(fix_objfun)
+    patchers = [
+        fix_main,
+        fix_project,
+        fix_print,
+        fix_objfun,
+        fix_stream,
+    ]
+    for patch in patchers:
+        patch_wrapper(patch)
 
 
 if __name__ == "__main__":
