@@ -30,7 +30,7 @@ Items needed to get past a beta release:
 - [ ] GUI based input and output, such as `win.input('prompt?')` to get a string, and `win.msgbox('info')` to show some text.
 - [ ] Documentation, including mock packages to make development easier.
 - [ ] Add support and examples for parsing CSV and JSON strings.
-- [ ] Hook up exception handling to log errors.
+- [x] Hook up exception handling to log errors.
 - [ ] Auto reload python script when the file changes.
 - [x] Log stdout/stderr to the application itself.
 - [ ] Some memory leak testing, fixing of all the bugs.

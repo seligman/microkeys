@@ -83,16 +83,33 @@ public:
 	}
 };
 
+string _stdout = "";
+string _stderr = "";
 extern "C" void handle_print_impl(int fd, void* buf, int len) {
-	while (len > 0 && (((char*)buf)[len - 1] == '\n' || ((char*)buf)[len - 1] == '\r')) {
-		len--;
-	}
 	if (len > 0) {
-		string str((char*)buf, len);
-		if (TestLogEnabled()) {
-			TestLog((fd == 1 ? "STDOUT: " : "STDERR: ") + str);
+		string* dest;
+		if (fd == 1) {
+			dest = &_stdout;
 		}
-		LogMessage((fd == 1 ? "STDOUT: " : "STDERR: ") + str);
+		else {
+			dest = &_stderr;
+		}
+		for (int i = 0; i < len; i++) {
+			switch (((char*)buf)[i]) {
+			case '\r':
+				break;
+			case '\n':
+				if (TestLogEnabled()) {
+					TestLog((fd == 1 ? "STDOUT: " : "STDERR: ") + *dest);
+				}
+				LogMessage((fd == 1 ? "Output: " : "ERROR: ") + *dest);
+				*dest = "";
+				break;
+			default:
+				*dest += ((char*)buf)[i];
+				break;
+			}
+		}
 	}
 }
 
@@ -585,7 +602,7 @@ extern "C" void key_press_store_fun(int vk, char* name, void* fun) {
 		ss << "Registered " << desc.str();
 	}
 	else {
-		ss << "Registered '" << key.Name;
+		ss << "Registered '" << key.Name << "'";
 	}
 	GetKeys().push_back(key);
 	LogMessage(ss.str());

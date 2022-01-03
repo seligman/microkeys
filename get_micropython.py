@@ -61,6 +61,18 @@ def fix_main(data):
     if data is None:
         return "ports/unix/main.c"
 
+    temp = []
+    for cur in data.split("\n"):
+        if 'MP_HAL_RETRY_SYSCALL(ret, write(STDERR_FILENO, str, len), {});' in cur:
+            temp.append('    handle_print_impl(2, (void*)str, len);')
+        temp.append(cur)
+        if "qstr source_name = lex->source_name;" in cur:
+            temp.append('        source_name = qstr_from_str("<MicroKeys.py>");')
+            temp.append('        mp_store_global(MP_QSTR___file__, MP_OBJ_NEW_QSTR("MicroKeys.py"));')
+        if 'void stderr_print_strn' in cur:
+            temp.append('void handle_print_impl(int fd, void* buf, int len);')
+    data = "\n".join(temp)
+
     data = data.replace("int main(", "int old_main(")
     data += "\n" + """
 int run_micro_python(const char* code) {
@@ -85,6 +97,10 @@ int run_fun(void* fun) {
         mp_hal_set_interrupt_char(-1);
         mp_handle_pending(true);
         nlr_pop();
+    } else {
+        mp_hal_set_interrupt_char(-1);
+        mp_handle_pending(false);
+        return handle_uncaught_exception(nlr.ret_val);
     }
     return 0;
 }

@@ -2,6 +2,7 @@ import keys, clip
 
 @keys.key(keys.KEY_ALT | keys.KEY_Z)
 def example_func():
+    raise Exception()
     keys.press("^c")
     x = clip.copy()
     result = eval(x)
