@@ -87,8 +87,13 @@ extern "C" void handle_print_impl(int fd, void* buf, int len) {
 	while (len > 0 && (((char*)buf)[len - 1] == '\n' || ((char*)buf)[len - 1] == '\r')) {
 		len--;
 	}
-	string str((char*)buf, len);
-	LogMessage((fd == 1 ? "STDOUT: " : "STDERR: ") + str);
+	if (len > 0) {
+		string str((char*)buf, len);
+		if (TestLogEnabled()) {
+			TestLog((fd == 1 ? "STDOUT: " : "STDERR: ") + str);
+		}
+		LogMessage((fd == 1 ? "STDOUT: " : "STDERR: ") + str);
+	}
 }
 
 void press_key(char key, SHORT vk, ModState& shiftState, ModState& altState, ModState& ctrlState) {
@@ -857,6 +862,13 @@ extern "C" void windows_set_position_impl(const char* handle, int x, int y, int 
 }
 
 extern "C" void windows_launch_impl(const char* command_line) {
+	if (TestLogEnabled()) {
+		stringstream ss;
+		ss << "windows.launch(\"" << command_line << "\")";
+		TestLog(ss.str());
+		return;
+	}
+
 	STARTUPINFOA si = { 0 };
 	si.cb = sizeof(STARTUPINFOA);
 	PROCESS_INFORMATION pi = { 0 };

@@ -2,11 +2,13 @@ mouse.click(1,0,0,0)
 mouse.click(0,1,0,0)
 mouse.click(0,0,1,0)
 mouse.click(0,0,0,1)
+mouse.click(1,1,0,0)
+mouse.click(0,0,1,1)
 mouse.position()
-clip.paste("10, 10")
+STDOUT: 10, 10
 mouse.move(50,60,0)
 mouse.position()
-clip.paste("50, 60")
+STDOUT: 50, 60
 mouse.move(-25,-25,1)
 mouse.position()
-clip.paste("25, 35")
+STDOUT: 25, 35

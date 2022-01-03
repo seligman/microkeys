@@ -1,5 +1,10 @@
 get_active()
-clip.paste("('01', 'Win Title', 'Win Class')")
+STDOUT: Active: ('01', 'Win Title', 'Win Class')
 list_all()
-clip.paste("[('01', 'Win Title 1', 'Win Class 1'), ('02', 'Win Title 2', 'Win Class 2')]")
-windows.set_active("01")
+STDOUT: Handle: 01, Title: Win Title 1, Class Name: Win Class 1
+STDOUT: Handle: 02, Title: Win Title 2, Class Name: Win Class 2
+windows.set_active("02")
+windows.launch("notepad")
+windows.get_position("02")
+STDOUT: X: 0, Y: 0, Width: 100, Height: 100
+windows.set_position("02", 10, 10, 100, 100)
