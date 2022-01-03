@@ -37,6 +37,8 @@ Items needed to get past a beta release:
 - [ ] Improve UI.
 - [ ] A proper installer.
 - [ ] Documentation, perhaps built from the harness code.
+- [ ] Document the test environment variables.
+- [ ] Add an option to minimize down to a notification icon.
 
 Items for future work:
 
