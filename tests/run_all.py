@@ -4,6 +4,7 @@ import subprocess
 import os
 import sys
 import re
+from datetime import datetime
 
 def main(release_type, target_tests):
     os.chdir(os.path.split(__file__)[0])
@@ -47,6 +48,10 @@ def main(release_type, target_tests):
                 os.environ["MICROKEYS_RUN"] = ",".join(tests)
                 os.environ["MICROKEYS_SOURCE"] = cur
 
+                started = datetime.utcnow()
+
+                print(f"{good:3d}: {cur[5:-3]:<15} ", flush=True, end="")
+
                 try:
                     subprocess.check_call([exe])
                 except:
@@ -54,6 +59,9 @@ def main(release_type, target_tests):
                         if key.startswith("MICROKEYS_"):
                             print(f"{key}={value}")
                     raise
+
+                finished = datetime.utcnow()
+                runtime = (finished - started).total_seconds()
 
                 if os.path.isfile(expected) or os.path.isfile(expected_py):
                     if os.path.isfile(expected_py):
@@ -66,6 +74,7 @@ def main(release_type, target_tests):
                     with open(temp) as f:
                         test_data = f.read()
                     if test_data != expected_data:
+                        print("failed!")
                         print(f"ERROR: {cur} did not complete properly!")
                         if os.path.isfile(expected_py):
                             print(f"Compare {temp} to results of {expected_py}")
@@ -73,13 +82,14 @@ def main(release_type, target_tests):
                             print(f"Compare {temp} to {expected}")
                         exit(1)
                 else:
+                    print("unknown")
                     print(f"WARNING: {cur} does not have test results")
                     print(f"Check {temp}, and if it's good, rename it to {expected}")
                     exit(1)
                 
                 os.unlink(temp)
                 good += 1
-                print(f"{good:3d}: {cur[5:-3]} is good.")
+                print(f"is good, took {runtime:0.3f} seconds")
 
     if good == 1:
         print("Test ran without problems")

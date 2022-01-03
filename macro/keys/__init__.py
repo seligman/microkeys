@@ -9,6 +9,7 @@ This module mostly provides keyboard interactions:
 * `KEY_xxx` - Various key definitions, such as `KEY_ALT`, `KEY_A`, and so on
 * `press` - Press keys based off a string
 * `press_raw` - Press keys based off a string, without looking for key codes
+* `log` - Just log some output to the MicroKeys console
 
 """
 
