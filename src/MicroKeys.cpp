@@ -247,6 +247,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 	{
 		switch (LOWORD(wParam))
 		{
+		case ID_FILE_RELOADPYTHON:
+			LoadPython();
+			break;
 		case IDM_ABOUT:
 			DialogBox(_hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
 			break;

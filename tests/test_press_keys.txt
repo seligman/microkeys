@@ -1,4 +1,4 @@
-key.press("+abc%(123)~{up}")
+keys.press("+abc%(123)~{up}")
   Key: Shift down
   Key: A press
   Key: Shift up

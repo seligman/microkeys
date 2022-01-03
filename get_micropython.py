@@ -68,6 +68,7 @@ def fix_main(data):
         temp.append(cur)
         if "qstr source_name = lex->source_name;" in cur:
             temp.append('        source_name = qstr_from_str("<MicroKeys.py>");')
+            temp.append('        lex->source_name = source_name;')
             temp.append('        mp_store_global(MP_QSTR___file__, MP_OBJ_NEW_QSTR("MicroKeys.py"));')
         if 'void stderr_print_strn' in cur:
             temp.append('void handle_print_impl(int fd, void* buf, int len);')

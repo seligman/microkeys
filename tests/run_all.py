@@ -16,7 +16,7 @@ def main(release_type, target_tests):
     print("Running tests...")
     good = 0
     for cur in sorted(os.listdir(".")):
-        if cur.startswith("test_") and cur.endswith(".py"):
+        if cur.startswith("test_") and cur.endswith(".py") and not cur.endswith(".expected.py"):
             run_test = True
             if target_tests is not None:
                 run_test = False
@@ -25,6 +25,7 @@ def main(release_type, target_tests):
 
             if run_test:
                 expected = cur[:-3] + ".txt"
+                expected_py = cur[:-3] + ".expected.py"
 
                 tests = []
                 with open(cur) as f:
@@ -54,14 +55,22 @@ def main(release_type, target_tests):
                             print(f"{key}={value}")
                     raise
 
-                if os.path.isfile(expected):
-                    with open(expected) as f:
-                        expected_data = f.read()
+                if os.path.isfile(expected) or os.path.isfile(expected_py):
+                    if os.path.isfile(expected_py):
+                        # Use a python script to generate the expected output for
+                        # any test that will output a silly amount of data
+                        expected_data = subprocess.check_output(f"python3 {expected_py}", shell=True).decode("utf-8").replace("\r", "")
+                    else:
+                        with open(expected) as f:
+                            expected_data = f.read()
                     with open(temp) as f:
                         test_data = f.read()
                     if test_data != expected_data:
                         print(f"ERROR: {cur} did not complete properly!")
-                        print(f"Compare {temp} to {expected}")
+                        if os.path.isfile(expected_py):
+                            print(f"Compare {temp} to results of {expected_py}")
+                        else:
+                            print(f"Compare {temp} to {expected}")
                         exit(1)
                 else:
                     print(f"WARNING: {cur} does not have test results")

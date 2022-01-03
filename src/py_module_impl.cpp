@@ -260,7 +260,7 @@ void press_key(char key, SHORT vk, ModState& shiftState, ModState& altState, Mod
 extern "C" void keys_log_invoke(const char* msg) {
 	if (TestLogEnabled()) {
 		stringstream ss;
-		ss << "key.log(\"" << msg << "\")";
+		ss << "keys.log(\"" << msg << "\")";
 		TestLog(ss.str());
 	}
 	stringstream ss;
@@ -271,7 +271,7 @@ extern "C" void keys_log_invoke(const char* msg) {
 extern "C" void keys_press_invoke(const char* msg) {
 	if (TestLogEnabled()) {
 		stringstream ss;
-		ss << "key.press(\"" << msg << "\")";
+		ss << "keys.press(\"" << msg << "\")";
 		TestLog(ss.str());
 	}
 	stringstream ss;
@@ -288,7 +288,9 @@ extern "C" void keys_press_invoke(const char* msg) {
 	bool first_key = true;
 
 	for (const char* cur = msg; *cur; cur++) {
-		DoEvents();
+		if (!TestLogEnabled()) {
+			DoEvents();
+		}
 
 		if (in_curly) {
 			if (curly.size() > 0 and *cur == '}') {
@@ -297,7 +299,9 @@ extern "C" void keys_press_invoke(const char* msg) {
 					first_key = false;
 				}
 				else {
-					Sleep(20);
+					if (!TestLogEnabled()) {
+						Sleep(20);
+					}
 				}
 
 				if (curly.size() == 1) {
@@ -434,7 +438,9 @@ extern "C" void keys_press_invoke(const char* msg) {
 					first_key = false;
 				}
 				else {
-					Sleep(20);
+					if (!TestLogEnabled()) {
+						Sleep(20);
+					}
 				}
 
 				switch (*cur) {
@@ -472,9 +478,11 @@ extern "C" void keys_press_raw_invoke(const char* msg) {
 	ModState altState(VK_MENU, "Alt");
 
 	for (const char* cur = msg; *cur; cur++) {
-		DoEvents();
-		if (cur != msg) {
-			Sleep(20);
+		if (!TestLogEnabled()) {
+			DoEvents();
+			if (cur != msg) {
+				Sleep(20);
+			}
 		}
 
 		press_key(*cur, 0, shiftState, altState, ctrlState);
@@ -709,11 +717,13 @@ extern "C" void mouse_move_invoke(int x, int y, int offset) {
 
 void mouse_helper(DWORD event, int vk, int check) {
 	mouse_event(event, 0, 0, 0, NULL);
-	for (int bail = 0; bail < 10; bail++) {
-		if ((GetKeyState(vk) & 0x8000) == check) {
-			break;
+	if (!TestLogEnabled()) {
+		for (int bail = 0; bail < 10; bail++) {
+			if ((GetKeyState(vk) & 0x8000) == check) {
+				break;
+			}
+			Sleep(50);
 		}
-		Sleep(50);
 	}
 }
 
