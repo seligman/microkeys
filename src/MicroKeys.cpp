@@ -76,13 +76,29 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 	int argc = 0;
 	LPWSTR*argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 	if (argc == 2) {
-		HWND hWnd = FindWindow(_windowClass.c_str(), _title.c_str());
-		COPYDATASTRUCT cds = { 0 };
-		string temp = WStrToStr(argv[1]);
-		cds.dwData = CDS_INVOKE_MACRO;
-		cds.cbData = (DWORD)temp.length();
-		cds.lpData = (void*)temp.c_str();
-		SendMessage(hWnd, WM_COPYDATA, 0, (LPARAM)&cds);
+		HANDLE hMutex = CreateMutex(NULL, TRUE, MICROKEYS_MUTEX);
+		if (GetLastError() == ERROR_ALREADY_EXISTS) {
+			HWND hWnd = FindWindow(_windowClass.c_str(), _title.c_str());
+			COPYDATASTRUCT cds = { 0 };
+			string temp = WStrToStr(argv[1]);
+			cds.dwData = CDS_INVOKE_MACRO;
+			cds.cbData = (DWORD)temp.length();
+			cds.lpData = (void*)temp.c_str();
+			SendMessage(hWnd, WM_COPYDATA, 0, (LPARAM)&cds);
+		}
+		else {
+			LoadPython();
+			istringstream run_ss(WStrToStr(argv[1]));
+			string cur;
+			while (getline(run_ss, cur, ',')) {
+				for (auto& key : _keys) {
+					if (key.Name == cur) {
+						run_fun(key.PythonFunction);
+						break;
+					}
+				}
+			}
+		}
 		return 0;
 	}
 
