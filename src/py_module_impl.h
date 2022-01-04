@@ -1,5 +1,16 @@
 #pragma once
 
+class ModState;
+
+void press_key(char key, SHORT vk, ModState& shiftState, ModState& altState, ModState& ctrlState);
+void AddDesc(stringstream& desc, string val);
+void mouse_helper(DWORD event, int vk, int check);
+string GetWindowText(HWND hwnd);
+string GetClassName(HWND hwnd);
+string HandleToStr(HWND hwnd);
+HWND StrToHandle(string hwnd);
+BOOL CALLBACK EnumWindowsProc(_In_ HWND hwnd, _In_ LPARAM lParam);
+
 extern "C" {
 	int run_micro_python(const char* code);
 	int run_fun(void* fun);

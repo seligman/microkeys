@@ -847,6 +847,8 @@ extern "C" void windows_set_active_impl(const char* handle) {
 	LogMessage(ss.str());
 
 	ShowWindow(StrToHandle(handle), SW_SHOWNORMAL);
+	// Switch focus to the shell
+	keybd_event(VK_LMENU, MapVirtualKeyA(VK_LMENU, 0), KEYEVENTF_KEYUP | (MapVirtualKeyA(VK_LMENU, 2) == 0 ? KEYEVENTF_EXTENDEDKEY : 0), 0);
 	SetForegroundWindow(StrToHandle(handle));
 }
 
