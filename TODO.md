@@ -39,6 +39,9 @@ Items needed to get past a beta release:
 - [ ] Documentation, perhaps built from the harness code.
 - [ ] Document the test environment variables.
 - [ ] Add an option to minimize down to a notification icon.
+- [ ] Some sort of REPL interface to debug and test changes
+- [ ] A way for a function to register and deregister macros
+- [ ] An option to trigger a function on window changes
 
 Items for future work:
 
