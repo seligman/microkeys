@@ -26,13 +26,13 @@ Items needed to get past an alpha release:
 
 Items needed to get past a beta release:
 
-- [ ] Look into issues reloading the source code not reloading functions
+- [x] Look into issues reloading the source code not reloading functions
 - [ ] Make the "embed as a library" changes to MicroPython something that can be merged back into that project.
 - [ ] GUI based input and output, such as `win.input('prompt?')` to get a string, and `win.msgbox('info')` to show some text.
 - [ ] Documentation, including mock packages to make development easier.
 - [ ] Add support and examples for parsing CSV and JSON strings.
 - [x] Hook up exception handling to log errors.
-- [ ] Auto reload python script when the file changes.
+- [x] Auto reload python script when the file changes.
 - [x] Log stdout/stderr to the application itself.
 - [ ] Some memory leak testing, fixing of all the bugs.
 - [ ] Improve UI.

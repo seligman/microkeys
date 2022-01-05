@@ -1,5 +1,10 @@
 #include "py/runtime.h"
 
+// The MicroPython glue logic.  Most of the code in here is fairly simple
+// code to bounce into the _impl version of the function in py_module_impl.
+// This is done to keep the seperate the MicroPython and implementation code,
+// as well as allow C++ code in response.
+
 /* ----- clip.copy --------------------------------------------------------- */
 char* clip_copy_invoke();
 STATIC mp_obj_t clip_copy(void) {
