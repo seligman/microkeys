@@ -175,7 +175,7 @@ def fix_stream(data):
 def main():
     if not os.path.isdir("micropython"):
         print("MicroPython folder doesn't exist, grabbing...")
-        run("git clone git@github.com:micropython/micropython.git")
+        run("git clone https://github.com/micropython/micropython.git")
         os.chdir("micropython")
         run("git checkout " + TARGET_TAG)
     else:
