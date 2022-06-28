@@ -61,6 +61,8 @@ mp_obj_t key_internal(mp_obj_t self_in, mp_uint_t n_args, mp_uint_t n_kw, const 
     return args[0];
 }
 
+mp_obj_t mp_obj_new_fun_native(const mp_obj_t* def_args, const void* fun_data, const void* cm, struct _mp_raw_code_t* const* raw_code_table);
+
 /* ----- keys.key ---------------------------------------------------------- */
 STATIC mp_obj_t keys_key(mp_obj_t a_obj) {
     strcpy(last_func_key_name, "");
@@ -72,7 +74,8 @@ STATIC mp_obj_t keys_key(mp_obj_t a_obj) {
     else if (a_type->name == MP_QSTR_str) {
         strcpy(last_func_key_name, mp_obj_str_get_str(a_obj));
     }
-    return mp_obj_new_fun_native(MP_OBJ_NULL, MP_OBJ_NULL, key_internal, m_new0(mp_uint_t, 1));
+    mp_obj_t temp = mp_obj_new_fun_native(MP_OBJ_NULL, key_internal, key_internal, MP_OBJ_NULL);
+    return temp;
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(keys_key_obj, keys_key);
 
@@ -365,7 +368,7 @@ const mp_obj_module_t keys_user_cmodule = {
     .base = { &mp_type_module },
     .globals = (mp_obj_dict_t *)&keys_module_globals,
 };
-MP_REGISTER_MODULE(MP_QSTR_keys, keys_user_cmodule, 1);
+MP_REGISTER_MODULE(MP_QSTR_keys, keys_user_cmodule);
 
 /*       clip module                                                         */
 STATIC const mp_rom_map_elem_t clip_module_globals_table[] = {
@@ -378,7 +381,7 @@ const mp_obj_module_t clip_user_cmodule = {
     .base = { &mp_type_module },
     .globals = (mp_obj_dict_t*)&clip_module_globals,
 };
-MP_REGISTER_MODULE(MP_QSTR_clip, clip_user_cmodule, 1);
+MP_REGISTER_MODULE(MP_QSTR_clip, clip_user_cmodule);
 
 /*       mouse module                                                        */
 STATIC const mp_rom_map_elem_t mouse_module_globals_table[] = {
@@ -398,7 +401,7 @@ const mp_obj_module_t mouse_user_cmodule = {
     .base = { &mp_type_module },
     .globals = (mp_obj_dict_t*)&mouse_module_globals,
 };
-MP_REGISTER_MODULE(MP_QSTR_mouse, mouse_user_cmodule, 1);
+MP_REGISTER_MODULE(MP_QSTR_mouse, mouse_user_cmodule);
 
 /*       windows module                                                      */
 STATIC const mp_rom_map_elem_t windows_module_globals_table[] = {
@@ -415,4 +418,4 @@ const mp_obj_module_t windows_user_cmodule = {
     .base = { &mp_type_module },
     .globals = (mp_obj_dict_t*)&windows_module_globals,
 };
-MP_REGISTER_MODULE(MP_QSTR_windows, windows_user_cmodule, 1);
+MP_REGISTER_MODULE(MP_QSTR_windows, windows_user_cmodule);

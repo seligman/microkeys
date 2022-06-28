@@ -3,7 +3,7 @@
 import subprocess
 import os
 
-TARGET_TAG="tags/v1.18"
+TARGET_TAG="tags/v1.19"
 
 
 def run(cmd):
