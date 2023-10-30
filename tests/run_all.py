@@ -5,6 +5,8 @@ import os
 import sys
 import re
 from datetime import datetime
+if sys.version_info >= (3, 11): from datetime import UTC
+else: import datetime as datetime_fix; UTC=datetime_fix.timezone.utc
 
 def main(release_type, target_tests):
     os.chdir(os.path.split(__file__)[0])
@@ -48,7 +50,7 @@ def main(release_type, target_tests):
                 os.environ["MICROKEYS_RUN"] = ",".join(tests)
                 os.environ["MICROKEYS_SOURCE"] = cur
 
-                started = datetime.utcnow()
+                started = datetime.now(UTC).replace(tzinfo=None)
 
                 print(f"{good:3d}: {cur[5:-3]:<15} ", flush=True, end="")
 
@@ -60,7 +62,7 @@ def main(release_type, target_tests):
                             print(f"{key}={value}")
                     raise
 
-                finished = datetime.utcnow()
+                finished = datetime.now(UTC).replace(tzinfo=None)
                 runtime = (finished - started).total_seconds()
 
                 if os.path.isfile(expected) or os.path.isfile(expected_py):
