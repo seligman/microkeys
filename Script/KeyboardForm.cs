@@ -18,6 +18,8 @@ namespace Script
         List<Script> _script;
         List<List<Script>> _scripts;
 
+        public event EventHandler Finished;
+
         List<Script> GetScript(int i)
         {
             /*
@@ -158,6 +160,7 @@ namespace Script
                 if (_scripts.Count == 0)
                 {
                     _timer.Enabled = false;
+                    Finished?.Invoke(this, EventArgs.Empty);
                     return;
                 }
                 else
@@ -342,13 +345,25 @@ namespace Script
             Invalidate();
         }
 
+        void DrawWindowsLogo(Graphics g, Brush brush, RectangleF rt)
+        {
+            // Four squares, sized to the key's label text
+            float pane = rt.Height / 7;
+            float gap = pane / 6;
+            float left = rt.X + (rt.Width - pane * 2 - gap) / 2;
+            float top = rt.Y + (rt.Height - pane * 2 - gap) / 2;
+            g.FillRectangle(brush, left, top, pane, pane);
+            g.FillRectangle(brush, left + pane + gap, top, pane, pane);
+            g.FillRectangle(brush, left, top + pane + gap, pane, pane);
+            g.FillRectangle(brush, left + pane + gap, top + pane + gap, pane, pane);
+        }
+
         void KeyboardForm_Paint(object sender, PaintEventArgs e)
         {
             var g = e.Graphics;
             g.Clear(Color.Black);
 
             using (var fontSegoe = new Font("Segoe UI", 10))
-            using (var fontHolo = new Font("HoloLens MDL2 Assets", 12))
             using (var sf = (StringFormat)StringFormat.GenericDefault.Clone())
             using (var keyBack = new SolidBrush(Color.FromArgb(50, 50, 50)))
             using (var keyDown = new SolidBrush(Color.FromArgb(225, 255, 255)))
@@ -386,21 +401,18 @@ namespace Script
                             case "down":
                                 desc = "\u02c5";
                                 break;
-                            case "win":
-                                font = fontHolo;
-                                desc = "\ue782";
-                                break;
                         }
 
-                        if (key.Down)
+                        var face = key.Down ? keyDown : keyBack;
+                        var ink = key.Down ? keyBack : keyDown;
+                        g.FillRectangle(face, rt.X, rt.Y, rt.Width, rt.Height);
+                        if (desc == "win")
                         {
-                            g.FillRectangle(keyDown, rt.X, rt.Y, rt.Width, rt.Height);
-                            g.DrawString(desc, font, keyBack, rt, sf);
+                            DrawWindowsLogo(g, ink, rt);
                         }
                         else
                         {
-                            g.FillRectangle(keyBack, rt.X, rt.Y, rt.Width, rt.Height);
-                            g.DrawString(desc, font, keyDown, rt, sf);
+                            g.DrawString(desc, font, ink, rt, sf);
                         }
                     }
                 }

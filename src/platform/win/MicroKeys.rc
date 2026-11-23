@@ -1,0 +1,103 @@
+// Resources for MicroKeysApp.exe
+#pragma code_page(65001)
+
+#include "Resource.h"
+#include "../../version.h"
+#include <windows.h>
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+IDI_MICROKEYS           ICON                    "MicroKeys.ico"
+
+1                       RT_MANIFEST             "MicroKeys.manifest"
+
+IDR_MAINMENU MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "&Reload scripts",             ID_FILE_RELOADPYTHON
+        MENUITEM "&Open script folder",         ID_EDITSCRIPTS
+        MENUITEM "Edit &settings",              ID_OPENSETTINGS
+        MENUITEM SEPARATOR
+        MENUITEM "&Clear log",                  ID_CLEARLOG
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit",                       IDM_EXIT
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&Documentation",              ID_DOCS
+        MENUITEM "&About MicroKeys",            IDM_ABOUT
+    END
+END
+
+IDD_ABOUTBOX DIALOGEX 0, 0, 202, 80
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About MicroKeys"
+FONT 8, "MS Shell Dlg", 0, 0, 0x1
+BEGIN
+    ICON            IDI_MICROKEYS,IDC_STATIC,14,14,20,20
+    LTEXT           "MicroKeys",IDC_STATIC,42,14,140,8,SS_NOPREFIX
+    LTEXT           "vX.X.X",IDC_VERSION,42,25,150,8
+    LTEXT           "vX.X.X",IDC_PY_VERSION,42,36,150,8
+    DEFPUSHBUTTON   "OK",IDOK,145,59,50,14,WS_GROUP
+END
+
+IDD_INPUT DIALOGEX 0, 0, 260, 80
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "MicroKeys"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "",IDC_PROMPT,7,7,246,24
+    EDITTEXT        IDC_TEXT,7,34,246,14,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK",IDOK,149,58,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,203,58,50,14
+END
+
+IDD_CHOOSE DIALOGEX 0, 0, 260, 170
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "MicroKeys"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "",IDC_PROMPT,7,7,246,16
+    LISTBOX         IDC_LIST,7,26,246,116,LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "OK",IDOK,149,148,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,203,148,50,14
+END
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION VERSION_1,VERSION_2,VERSION_3,0
+ PRODUCTVERSION VERSION_1,VERSION_2,VERSION_3,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "Scott Seligman"
+            VALUE "FileDescription", "MicroKeys"
+            VALUE "FileVersion", VERSION_TEXT
+            VALUE "InternalName", "MicroKeysApp"
+            VALUE "LegalCopyright", "Copyright © Scott Seligman"
+            VALUE "OriginalFilename", "MicroKeysApp.exe"
+            VALUE "ProductName", "MicroKeys"
+            VALUE "ProductVersion", VERSION_TEXT
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+
+STRINGTABLE
+BEGIN
+    IDS_APP_TITLE           "MicroKeys"
+END

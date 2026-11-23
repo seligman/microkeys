@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Text;
 using System.Windows.Forms;
 
@@ -16,7 +17,7 @@ namespace Script
         public ControlForm()
         {
             AddButton("Get sizes", GetSizes_Click);
-            AddButton("Run alt-Z script", RunAltZ_Click);
+            AddButton("Run Ctrl+Alt+E script", RunEvaluate_Click);
             AddButton("Run test script", RunTest_Click);
             AddButton("Close", Close_Click);
 
@@ -37,19 +38,46 @@ namespace Script
             ));
         }
 
-        void RunAltZ_Click(object sender, EventArgs e)
+        void RunEvaluate_Click(object sender, EventArgs e)
         {
+            RunEvaluate();
+        }
+
+        void RunEvaluate()
+        {
+            // Type a formula, select it, and press the hotkey from demo/MicroKeys.py
             Program.Other.BringToFront();
+            Program.Other.Activate();
+            WinAPI.SetForegroundWindow(Program.Other.Handle);
             Program.Keyboard.RunScript(Script.FollowScript(100,
                 "'(100 + 11) * 9"
             ), Script.FollowScript(250,
                 "+ctrl",
                 ">a",
                 "-ctrl",
+                "+ctrl",
                 "+alt",
-                ">z",
-                "-alt"
+                ">e",
+                "-alt",
+                "-ctrl"
             ));
+        }
+
+        public void RunDemo()
+        {
+            // Run the script, then leave the result up for a few seconds, note what
+            // the text box ended up with for record_demo.py to check, and close
+            Program.Keyboard.Finished += (sender, e) =>
+            {
+                var timer = new Timer { Interval = 4000, Enabled = true };
+                timer.Tick += (s, a) =>
+                {
+                    timer.Enabled = false;
+                    File.WriteAllText(Path.Combine(Path.GetTempPath(), "microkeys_demo_result.txt"), Program.Other.Content);
+                    Program.Background.Close();
+                };
+            };
+            RunEvaluate();
         }
 
         void GetSizes_Click(object sender, EventArgs e)
@@ -57,26 +85,13 @@ namespace Script
             Debug.WriteLine("---------------------------------------------------------------------------------");
             Debug.WriteLine($"SetPosition(Background, {Program.Background.Location.X}, {Program.Background.Location.Y}, {Program.Background.Size.Width}, {Program.Background.Size.Height});");
             Debug.WriteLine($"SetPosition(Code, {Program.Code.Location.X}, {Program.Code.Location.Y}, {Program.Code.Size.Width}, {Program.Code.Size.Height});");
-            WinAPI.EnumWindows(EnumProc, IntPtr.Zero);
+            if (WinAPI.GetWindowRect(Program.FindMicroKeys(), out WinAPI.RECT rt))
+            {
+                Debug.WriteLine($"SetMicroKeys({rt.Left}, {rt.Top}, {rt.Width}, {rt.Height});");
+            }
             Debug.WriteLine($"SetPosition(Other, {Program.Other.Location.X}, {Program.Other.Location.Y}, {Program.Other.Size.Width}, {Program.Other.Size.Height});");
             Debug.WriteLine($"SetPosition(Keyboard, {Program.Keyboard.Location.X}, {Program.Keyboard.Location.Y}, {Program.Keyboard.Size.Width}, {Program.Keyboard.Size.Height});");
             Debug.WriteLine($"SetPosition(Control, {Program.Control.Location.X}, {Program.Control.Location.Y}, -1, -1);");
-        }
-
-        bool EnumProc(IntPtr hWnd, IntPtr lParam)
-        {
-            var sb = new StringBuilder(255);
-            WinAPI.GetWindowText(hWnd, sb, 255);
-            if (sb.ToString() == "MicroKeys")
-            {
-                WinAPI.GetWindowRect(hWnd, out WinAPI.RECT rt);
-                Debug.WriteLine($"SetMicroKeys({rt.Left}, {rt.Top}, {rt.Width}, {rt.Height});");
-                return false;
-            }
-            else
-            {
-                return true;
-            }
         }
 
         void Close_Click(object sender, EventArgs e)

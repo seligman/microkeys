@@ -22,14 +22,19 @@ namespace Script
 
         public static bool ShowTitleBars = false;
 
+        // With --demo the evaluate script runs by itself once everything is
+        // in place, and the app closes when it's done, for record_demo.py
+        public static bool Demo = false;
+
         [STAThread]
-        static void Main()
+        static void Main(string[] args)
         {
+            Demo = args.Contains("--demo");
             Application.SetHighDpiMode(HighDpiMode.DpiUnawareGdiScaled);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            Code = new TextForm("MicroKeys.py", "MicroKeys.py");
+            Code = new TextForm("MicroKeys.py", "MicroKeys.py", 11);
             Other = new TextForm("Untitled");
             Keyboard = new KeyboardForm();
             Background = new BackgroundForm();
@@ -46,19 +51,25 @@ namespace Script
                     SetPosition(Background, -50, -50, 1200, 1200);
                     break;
                 case 1:
-                    SetPosition(Code, 30, 50, 648, 390);
+                    SetPosition(Code, 15, 35, 470, 300);
                     break;
                 case 2:
-                    SetMicroKeys(413, 128, 369, 223);
+                    SetMicroKeys(495, 145, 490, 190);
                     break;
                 case 3:
-                    SetPosition(Other, 680, 48, 300, 331);
+                    SetPosition(Other, 495, 35, 490, 100);
                     break;
                 case 4:
-                    SetPosition(Keyboard, 286, 378, 690, 204);
+                    SetPosition(Keyboard, 155, 345, 690, 230);
                     break;
                 case 5:
                     SetPosition(Control, 1210, 75, -1, -1);
+                    break;
+                case 6:
+                    if (Demo)
+                    {
+                        Control.RunDemo();
+                    }
                     break;
                 default:
                     return false;
@@ -66,29 +77,20 @@ namespace Script
             return true;
         }
 
-        static IntPtr _hwndMicro = IntPtr.Zero;
-        static void SetMicroKeys(int x, int y, int width, int height)
+        public static IntPtr FindMicroKeys()
         {
-            WinAPI.EnumWindows(EnumProc, IntPtr.Zero);
-            if (_hwndMicro != IntPtr.Zero)
-            {
-                WinAPI.MoveWindow(_hwndMicro, x, y, width, height, true);
-                WinAPI.SetForegroundWindow(_hwndMicro);
-            }
+            // The MicroKeys log window, which lives hidden behind the tray icon
+            return WinAPI.FindWindow("MicroKeysMainWindow", null);
         }
 
-        static bool EnumProc(IntPtr hWnd, IntPtr lParam)
+        static void SetMicroKeys(int x, int y, int width, int height)
         {
-            var sb = new StringBuilder(255);
-            WinAPI.GetWindowText(hWnd, sb, 255);
-            if (sb.ToString() == "MicroKeys")
+            var hwnd = FindMicroKeys();
+            if (hwnd != IntPtr.Zero)
             {
-                _hwndMicro = hWnd;
-                return false;
-            }
-            else
-            {
-                return true;
+                WinAPI.ShowWindow(hwnd, 1);
+                WinAPI.MoveWindow(hwnd, x, y, width, height, true);
+                WinAPI.SetForegroundWindow(hwnd);
             }
         }
 

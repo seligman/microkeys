@@ -2,14 +2,52 @@
 
 ![](images/quick_run.gif)
 
-This is a *work in progress*.
+MicroKeys runs Python functions when you press a hotkey or type a bit of text.  Macros are ordinary Python 3.14 scripts with the full standard library, so they can do anything Python can: rewrite the selected text, arrange windows, look something up, or type out a reply.
 
-This is a key macro program for Windows that runs Python functions in response to key presses, using [MicroPython](https://micropython.org/) to parse the script.  The long term goal is complete the macro language and improve the UI.  The simple example shown above shows a formula being typed into a text box, the contents being copied to the clipboard, then the macro key is hit, causing MicroKeys to evaluate the formula and type out the answer.  More than the use of this particular macro, this is meant as an example of the potential power of having MicroPython available to respond to key presses.
+```python
+import time
+from microkeys import hotkey, hotstring, clip, keys
 
-To run this locally, download the [latest release](https://github.com/seligman/microkeys/releases), decompress it to a local folder, and run `MicroKeys.exe`.
+@hotkey("ctrl+alt+d")
+def type_date():
+    keys.type(time.strftime("%Y-%m-%d"))
 
-If you want to run this from source, you'll need Visual Studio, along with Python 3.9+ and Git in your path.  To run the POC, sync this project down, then run `get_micropython.py` to sync down MicroPython and patch it to be built as a library in a windows GUI app.  Then you can open the VS solution, and run it.
+@hotkey("ctrl+alt+e")
+def evaluate():
+    text = clip.copy_selection()
+    keys.type(f"{text} = {eval(text)}")
 
-It's currently in a beta state.  There is much work necessary to get this to a final release, you can track the [status here](TODO.md).
+hotstring(";sig", "Best regards,\nSam")
+```
+
+The example above is what the GIF shows: a formula is selected, Ctrl+Alt+E is pressed, and MicroKeys types out the answer.
+
+## Using it
+
+Download the latest release, unzip it into a folder you can write to (such as `%LOCALAPPDATA%\MicroKeys`), and run `MicroKeys.exe`.  It lives in the notification area; scripts go in `Documents\MicroKeys`, and reload whenever you save them.
+
+- [Guide](docs/guide.md): scripts, hotkeys, hotstrings, commands, settings
+- [Cookbook](docs/cookbook.md): macros to copy and adapt
+- The API reference is built from the package's docstrings and ships in each release (`docs\api.html`, or **Documentation** in the tray menu)
+
+MicroKeys runs on Windows 10 and 11, x64 and ARM64.
+
+## Building
+
+You need Visual Studio 2022 with the C++ desktop workload (plus the ARM64 build tools for an ARM64 build), CMake 3.21 or later, and Python 3 on the path.  The build downloads the pinned CPython it embeds (see `tools/python_version.json`) and checks its hashes.
+
+```
+cmake -S . -B build\x64 -G "Visual Studio 17 2022" -A x64
+cmake --build build\x64 --config Release
+```
+
+The result is laid out the way a release unpacks, in `build\x64\stage\Release\MicroKeys`.  Use `-A ARM64` and `build\arm64` for ARM64.
+
+Tests:
+
+- `ctest --test-dir build\x64 -C Release` runs the core's unit tests.  The core is platform neutral, so these also build and run on Linux and macOS.
+- `python -m pytest tests/python` tests the Python package against a fake of the native module, on any OS.
+- `python tests\integration\run_integration.py` runs the real app headless against test scripts.  It needs no desktop.
+- `python tests\gui\run_gui_tests.py --exe <MicroKeysApp.exe>` drives the app with real keystrokes.  It needs an unlocked desktop, not an SSH session.
 
 Questions? Feedback? [E-mail me](mailto:scott.seligman@gmail.com).

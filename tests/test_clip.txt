@@ -1,5 +1,0 @@
-clip.copy()
-STDOUT: <clipboard> 2
-clip.paste("3")
-clip.copy()
-STDOUT: 3 4

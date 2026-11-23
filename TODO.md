@@ -1,50 +1,40 @@
 ## Todo
 
-Tracking the work items to get to different stages of development.
+Tracking the work after 1.0.  The plan and its priorities live in the productization plan doc.
 
-Items needed to get past an alpha release:
+Done for 1.0:
 
-- [x] Find and remove dependencies on the Console, so this can run as a pure GUI application.
-- [x] Allow Python code to call back into C++, to enable helpers like `type_string` and so on.
-- [x] Add decorator so we know which functions to call for key presses.
-- [x] Hook up decorator to allow more than one function.
-- [x] Decorator should use VK_* style values instead of a string.
-- [x] Load code from .py files.
-- [x] Show what keys are being registered
-- [x] Keep machine state around between keys.
-- [x] Properly implement `keys.press` to press keys.
-- [x] Don't stall out the GUI message loop while doing work.
-- [x] Add features to `keys.press`, like ctrl, shift, alt, ~ for enter, etc
-- [x] Implement `mouse.click` and such for some basic mouse features.
-- [x] Clipboard helper functions like `clip.copy` and `clip.paste` of some sort.
-- [x] Add some window management features, like `win.switch`, `win.title`, and so on.
-- [x] Verify state is saved between calls.
-- [x] A CLI version to test out code quickly.
-- [x] Basic documentation for python modules.
-- [x] A build and distribution that can be easily downloaded.
-- [x] Allow keyless macros.
+- [x] Embed CPython (3.14) instead of MicroPython, on a script thread of its own
+- [x] Platform interface, with the Windows implementation behind it
+- [x] CMake build, x64 and ARM64
+- [x] Hotkeys written as strings, per-app hotkeys, hotstrings
+- [x] Unicode typing, `paste_text`, window objects, `run` and `open`
+- [x] `msgbox`, `input`, `choose`, and toasts
+- [x] Tray app, abort hotkey, busy indicator, start with Windows
+- [x] Script folder in Documents with a starter script, several scripts per folder, keep-last-good reloads
+- [x] Per-monitor DPI awareness
+- [x] Generated API docs, a guide, a cookbook, and editor autocomplete through pyrightconfig.json
+- [x] Zip releases and a self-updater
+- [x] Unit tests (core and Python package), headless integration tests, GUI tests, GitHub Actions
 
-Items needed to get past a beta release:
+Next (P2):
 
-- [x] Look into issues reloading the source code not reloading functions
-- [ ] Make the "embed as a library" changes to MicroPython something that can be merged back into that project.
-- [ ] GUI based input and output, such as `win.input('prompt?')` to get a string, and `win.msgbox('info')` to show some text.
-- [ ] Documentation, including mock packages to make development easier.
-- [ ] Add support and examples for parsing CSV and JSON strings.
-- [x] Hook up exception handling to log errors.
-- [x] Auto reload python script when the file changes.
-- [x] Log stdout/stderr to the application itself.
-- [ ] Some memory leak testing, fixing of all the bugs.
-- [ ] Improve UI.
-- [ ] A proper installer.
-- [ ] Documentation, perhaps built from the harness code.
-- [ ] Document the test environment variables.
-- [ ] Add an option to minimize down to a notification icon.
-- [ ] Some sort of REPL interface to debug and test changes
-- [ ] A way for a function to register and deregister macros
-- [ ] An option to trigger a function on window changes
+- [ ] Register and unregister bindings from code; `@on_start` and `@on_reload`
+- [ ] Window events: foreground change, window opened
+- [ ] Timers: `every()`, `at()`, `after()`
+- [ ] Clipboard-changed events and clipboard history
+- [ ] Rich clipboard: HTML, RTF, file lists, images
+- [ ] Log window with clickable tracebacks
+- [ ] REPL console and `debugpy` attach
+- [ ] `store`: a dict saved between runs
+- [ ] `pip install` into a MicroKeys-managed `site-packages`
 
-Items for future work:
+Later (P3):
 
-- [ ] A macOS port.
-- [ ] Something like a built in IDE to debug scripts.
+- [ ] Key remapping and mouse-button triggers
+- [ ] Messages between machines (`net.send()` and `@net.on()`, MagicDNS or Bonjour names, paired by token)
+- [ ] Screen: pixel colour, screenshot, wait for an image
+- [ ] UI Automation (Windows UIA, macOS AX)
+- [ ] Export and import scripts and settings as one zip
+- [ ] "Run elevated" option
+- [ ] The macOS port

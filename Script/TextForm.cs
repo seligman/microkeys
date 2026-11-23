@@ -11,7 +11,9 @@ namespace Script
     class TextForm : Form
     {
         TextBox _text;
-        public TextForm(string title, string fn = null)
+        public string Content => _text.Text;
+
+        public TextForm(string title, string fn = null, float fontSize = 12)
         {
             Text = title;
             MinimizeBox = false;
@@ -20,7 +22,7 @@ namespace Script
             {
                 Dock = DockStyle.Fill,
                 Multiline = true,
-                Font = new Font("Consolas", 12),
+                Font = new Font("Consolas", fontSize),
                 BackColor = Program.BackColor,
                 ForeColor = Program.ForeColor,
                 ScrollBars = ScrollBars.Both,
@@ -35,7 +37,7 @@ namespace Script
 
             if (fn != null)
             {
-                fn = Path.Combine("macro", fn);
+                fn = Path.Combine("demo", fn);
                 for (int i = 0; i < 4; i++)
                 {
                     if (!File.Exists(fn))
@@ -45,7 +47,8 @@ namespace Script
                 }
                 if (File.Exists(fn))
                 {
-                    _text.Text = File.ReadAllText(fn);
+                    // A TextBox only breaks lines on CRLF
+                    _text.Text = File.ReadAllText(fn).Replace("\r\n", "\n").Replace("\n", "\r\n");
                 }
             }
 

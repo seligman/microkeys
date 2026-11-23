@@ -1,0 +1,52 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  core:
+    # The platform neutral core and the Python package, on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Core tests
+        run: |
+          cmake -S . -B build/linux -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/linux
+          ctest --test-dir build/linux --output-on-failure
+      - name: Python tests
+        run: |
+          python -m pip install pytest
+          python -m pytest -q -p no:cacheprovider tests/python
+
+  windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Build
+        run: |
+          cmake -S . -B build/${{ matrix.arch }} -G "Visual Studio 17 2022" -A ${{ matrix.arch == 'arm64' && 'ARM64' || 'x64' }}
+          cmake --build build/${{ matrix.arch }} --config Release -- /m /v:minimal
+      - name: Tests
+        if: matrix.arch == 'x64'
+        run: |
+          ctest --test-dir build/x64 -C Release --output-on-failure
+          python tests/integration/run_integration.py
+      - name: Package
+        # Test builds only: no update feed, so these copies never update.
+        # Releases are packaged locally with the feed from ~/.microkeys_release.json.
+        run: python tools/make_release.py --arch ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MicroKeys-${{ matrix.arch }}
+          path: dist/MicroKeys-*.zip

@@ -397,5 +397,9 @@ namespace Script
         public static extern void keybd_event(byte bVk, byte bScan, KeybdEventFlag dwFlags, uint dwExtraInfo);
         [DllImport("user32.dll")]
         public static extern short VkKeyScan(char ch);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+        [DllImport("user32.dll")]
+        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     }
 }
