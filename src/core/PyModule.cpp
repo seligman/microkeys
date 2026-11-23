@@ -88,13 +88,15 @@ static PyObject* mk_configure(PyObject* self, PyObject* args) {
 	const char* abortKey;
 	const char* feed;
 	int check;
-	if (!PyArg_ParseTuple(args, "sissp", &scriptDir, &config.AbortMods, &abortKey, &feed, &check)) {
+	const char* editor;
+	if (!PyArg_ParseTuple(args, "sissps", &scriptDir, &config.AbortMods, &abortKey, &feed, &check, &editor)) {
 		return NULL;
 	}
 	config.ScriptDir = scriptDir;
 	config.AbortKey = abortKey;
 	config.UpdateFeed = feed;
 	config.CheckUpdates = check != 0;
+	config.Editor = editor;
 	HOST->Shell->Configure(config);
 	Py_RETURN_NONE;
 }
@@ -103,10 +105,12 @@ static PyObject* mk_set_bindings(PyObject* self, PyObject* args) {
 	// Hotkeys:    (id, mods, key, description, process, title, class)
 	// Hotstrings: (id, trigger, immediate, case_sensitive, process, title, class)
 	// Commands:   (id, name)
+	// Window events: (id, event, process, title, class)
 	PyObject* hotkeys;
 	PyObject* hotstrings;
 	PyObject* commands;
-	if (!PyArg_ParseTuple(args, "O!O!O!", &PyList_Type, &hotkeys, &PyList_Type, &hotstrings, &PyList_Type, &commands)) {
+	PyObject* events;
+	if (!PyArg_ParseTuple(args, "O!O!O!O!", &PyList_Type, &hotkeys, &PyList_Type, &hotstrings, &PyList_Type, &commands, &PyList_Type, &events)) {
 		return NULL;
 	}
 	Bindings bindings;
@@ -143,6 +147,15 @@ static PyObject* mk_set_bindings(PyObject* self, PyObject* args) {
 		cmd.Name = name;
 		bindings.Commands.push_back(cmd);
 	}
+	for (Py_ssize_t i = 0; i < PyList_GET_SIZE(events); i++) {
+		WindowEventBinding ev;
+		const char *process, *title, *cls;
+		if (!PyArg_ParseTuple(PyList_GET_ITEM(events, i), "iisss", &ev.ID, &ev.Event, &process, &title, &cls)) {
+			return NULL;
+		}
+		ReadFilter(process, title, cls, ev.When);
+		bindings.WindowEvents.push_back(ev);
+	}
 	HOST->Shell->SetBindings(bindings);
 	Py_RETURN_NONE;
 }
@@ -165,6 +178,31 @@ static PyObject* mk_macro_running(PyObject* self, PyObject* args) {
 	}
 	HOST->Shell->MacroState(what);
 	Py_RETURN_NONE;
+}
+
+static PyObject* mk_console_state(PyObject* self, PyObject* args) {
+	// Whether the console's prompt is in the middle of a block
+	int more;
+	if (!PyArg_ParseTuple(args, "p", &more)) {
+		return NULL;
+	}
+	HOST->Shell->ConsoleState(more != 0);
+	Py_RETURN_NONE;
+}
+
+static PyObject* mk_post(PyObject* self, PyObject* args) {
+	// Queue a job, from any thread: how the timer thread hands over timers.
+	// False when too many jobs are waiting.
+	int kind, id;
+	const char* extra;
+	if (!PyArg_ParseTuple(args, "iis", &kind, &id, &extra)) {
+		return NULL;
+	}
+	return PyBool_FromLong(HOST->PostFire(kind, id, extra));
+}
+
+static PyObject* mk_paused(PyObject* self, PyObject* args) {
+	return PyBool_FromLong(HOST->Paused);
 }
 
 static PyObject* mk_cancelled(PyObject* self, PyObject* args) {
@@ -337,6 +375,130 @@ static PyObject* mk_clip_set(PyObject* self, PyObject* args) {
 
 static PyObject* mk_clip_sequence(PyObject* self, PyObject* args) {
 	return PyLong_FromUnsignedLong(PLAT->ClipboardSequence());
+}
+
+static PyObject* StrList(const vector<string>& items) {
+	PyObject* ret = PyList_New(0);
+	for (auto& cur : items) {
+		PyObject* item = Str(cur);
+		if (item == NULL) {
+			Py_DECREF(ret);
+			return NULL;
+		}
+		PyList_Append(ret, item);
+		Py_DECREF(item);
+	}
+	return ret;
+}
+
+static bool ReadClipItems(PyObject* list, vector<ClipItem>& items) {
+	// A list of (kind, bytes)
+	for (Py_ssize_t i = 0; i < PyList_GET_SIZE(list); i++) {
+		ClipItem item;
+		const char* kind;
+		const char* data;
+		Py_ssize_t len;
+		if (!PyArg_ParseTuple(PyList_GET_ITEM(list, i), "sy#", &kind, &data, &len)) {
+			return false;
+		}
+		item.Kind = kind;
+		item.Data.assign(data, len);
+		items.push_back(item);
+	}
+	return true;
+}
+
+static PyObject* ClipItemList(const vector<ClipItem>& items) {
+	PyObject* ret = PyList_New(0);
+	for (auto& cur : items) {
+		PyObject* kind = Str(cur.Kind);
+		PyObject* data = PyBytes_FromStringAndSize(cur.Data.data(), (Py_ssize_t)cur.Data.size());
+		PyObject* item = (kind && data) ? PyTuple_Pack(2, kind, data) : NULL;
+		Py_XDECREF(kind);
+		Py_XDECREF(data);
+		if (item == NULL) {
+			Py_DECREF(ret);
+			return NULL;
+		}
+		PyList_Append(ret, item);
+		Py_DECREF(item);
+	}
+	return ret;
+}
+
+static PyObject* mk_clip_kinds(PyObject* self, PyObject* args) {
+	return StrList(PLAT->ClipboardKinds());
+}
+
+static PyObject* mk_clip_get_data(PyObject* self, PyObject* args) {
+	const char* kind;
+	if (!PyArg_ParseTuple(args, "s", &kind)) {
+		return NULL;
+	}
+	string data;
+	bool ok;
+	Py_BEGIN_ALLOW_THREADS
+	ok = PLAT->ReadClipboard(kind, data);
+	Py_END_ALLOW_THREADS
+	if (!ok) {
+		Py_RETURN_NONE;
+	}
+	return PyBytes_FromStringAndSize(data.data(), (Py_ssize_t)data.size());
+}
+
+static PyObject* mk_clip_set_data(PyObject* self, PyObject* args) {
+	PyObject* list;
+	if (!PyArg_ParseTuple(args, "O!", &PyList_Type, &list)) {
+		return NULL;
+	}
+	vector<ClipItem> items;
+	if (!ReadClipItems(list, items)) {
+		return NULL;
+	}
+	string error;
+	bool ok;
+	Py_BEGIN_ALLOW_THREADS
+	ok = PLAT->WriteClipboard(items, error);
+	Py_END_ALLOW_THREADS
+	if (!ok && !error.empty()) {
+		PyErr_SetString(PyExc_ValueError, error.c_str());
+		return NULL;
+	}
+	return PyBool_FromLong(ok);
+}
+
+static PyObject* mk_clip_save(PyObject* self, PyObject* args) {
+	// Every format on the clipboard, for clip_restore; None if it was busy
+	vector<ClipItem> items;
+	bool ok;
+	Py_BEGIN_ALLOW_THREADS
+	ok = PLAT->SaveClipboard(items);
+	Py_END_ALLOW_THREADS
+	if (!ok) {
+		Py_RETURN_NONE;
+	}
+	return ClipItemList(items);
+}
+
+static PyObject* mk_clip_restore(PyObject* self, PyObject* args) {
+	PyObject* list;
+	if (!PyArg_ParseTuple(args, "O!", &PyList_Type, &list)) {
+		return NULL;
+	}
+	vector<ClipItem> items;
+	if (!ReadClipItems(list, items)) {
+		return NULL;
+	}
+	bool ok;
+	Py_BEGIN_ALLOW_THREADS
+	ok = PLAT->RestoreClipboard(items);
+	Py_END_ALLOW_THREADS
+	return PyBool_FromLong(ok);
+}
+
+static PyObject* mk_clip_concealed(PyObject* self, PyObject* args) {
+	// Has a password manager marked what's on the clipboard as private?
+	return PyBool_FromLong(PLAT->ClipboardConcealed());
 }
 
 static PyObject* mk_list_windows(PyObject* self, PyObject* args) {
@@ -536,6 +698,16 @@ static PyObject* mk_toast(PyObject* self, PyObject* args) {
 	Py_RETURN_NONE;
 }
 
+static PyObject* mk_overlay(PyObject* self, PyObject* args) {
+	const char* text;
+	int timeoutMs;
+	if (!PyArg_ParseTuple(args, "si", &text, &timeoutMs)) {
+		return NULL;
+	}
+	PLAT->ShowOverlay(text, timeoutMs);
+	Py_RETURN_NONE;
+}
+
 static PyObject* mk_shell_open(PyObject* self, PyObject* args) {
 	const char* target;
 	if (!PyArg_ParseTuple(args, "s", &target)) {
@@ -564,6 +736,9 @@ static PyMethodDef _methods[] = {
 	{ "set_bindings", mk_set_bindings, METH_VARARGS, NULL },
 	{ "scripts_loaded", mk_scripts_loaded, METH_VARARGS, NULL },
 	{ "macro_running", mk_macro_running, METH_VARARGS, NULL },
+	{ "console_state", mk_console_state, METH_VARARGS, NULL },
+	{ "post", mk_post, METH_VARARGS, NULL },
+	{ "paused", mk_paused, METH_NOARGS, NULL },
 	{ "cancelled", mk_cancelled, METH_NOARGS, NULL },
 	{ "check_cancel", mk_check_cancel, METH_NOARGS, NULL },
 	{ "sleep", mk_sleep, METH_VARARGS, NULL },
@@ -577,6 +752,12 @@ static PyMethodDef _methods[] = {
 	{ "clip_get", mk_clip_get, METH_NOARGS, NULL },
 	{ "clip_set", mk_clip_set, METH_VARARGS, NULL },
 	{ "clip_sequence", mk_clip_sequence, METH_NOARGS, NULL },
+	{ "clip_kinds", mk_clip_kinds, METH_NOARGS, NULL },
+	{ "clip_get_data", mk_clip_get_data, METH_VARARGS, NULL },
+	{ "clip_set_data", mk_clip_set_data, METH_VARARGS, NULL },
+	{ "clip_save", mk_clip_save, METH_NOARGS, NULL },
+	{ "clip_restore", mk_clip_restore, METH_VARARGS, NULL },
+	{ "clip_concealed", mk_clip_concealed, METH_NOARGS, NULL },
 	{ "list_windows", mk_list_windows, METH_VARARGS, NULL },
 	{ "foreground", mk_foreground, METH_NOARGS, NULL },
 	{ "window_info", mk_window_info, METH_VARARGS, NULL },
@@ -592,6 +773,7 @@ static PyMethodDef _methods[] = {
 	{ "ask_text", mk_ask_text, METH_VARARGS, NULL },
 	{ "ask_choice", mk_ask_choice, METH_VARARGS, NULL },
 	{ "toast", mk_toast, METH_VARARGS, NULL },
+	{ "overlay", mk_overlay, METH_VARARGS, NULL },
 	{ "shell_open", mk_shell_open, METH_VARARGS, NULL },
 	{ NULL, NULL, 0, NULL },
 };

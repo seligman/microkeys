@@ -15,7 +15,7 @@ FAKE = FakeMicrokeys()
 sys.modules["_microkeys"] = FAKE
 
 import microkeys
-from microkeys import _runtime, _settings, _bindings
+from microkeys import _runtime, _settings, _bindings, _packages, _store, _timers, clip, ui
 
 
 class Env:
@@ -29,6 +29,7 @@ class Env:
         self.app = root / "app"
         self.lib = self.app / "lib"
         self.docs = root / "docs"
+        self.local = root / "local"
         for d in (self.data, self.app, self.lib, self.docs):
             d.mkdir(parents=True, exist_ok=True)
 
@@ -42,6 +43,7 @@ class Env:
             "lib_dir": str(self.lib),
             "data_dir": str(self.data),
             "documents_dir": str(self.docs),
+            "local_dir": str(self.local),
             "script_dir": str(self.scripts) if script_dir else "",
             "headless": headless,
         }
@@ -60,6 +62,9 @@ class Env:
 
     def commands(self):
         return self.fake.bindings[2]
+
+    def window_events(self):
+        return self.fake.bindings[3]
 
     def hotkey_id(self, description):
         for row in self.hotkeys():
@@ -88,10 +93,23 @@ def env(tmp_path):
     _runtime._commands.clear()
     _runtime._config.clear()
     _runtime._script_dir = None
+    _runtime._published = None
+    _runtime._console_lines.clear()
+    _runtime._console_ns.clear()
+    _runtime._scheduler = _timers.Scheduler()
     _settings.current = dict(_settings.DEFAULTS)
     _bindings.end()
+    _bindings.live = None
+    _bindings.loaded.clear()
+    _bindings.changed = False
+    _packages._failed.clear()
+    _store.store.clear()
+    _store._path = None
+    clip.clear_history()
+    ui._lasting = None
     saved = (sys.stdout, sys.stderr, list(sys.path), time.sleep, os.getcwd())
     yield Env(FAKE, tmp_path)
+    _runtime._scheduler.stop()
     os.chdir(saved[4])
     sys.stdout, sys.stderr = saved[0], saved[1]
     time.sleep = saved[3]

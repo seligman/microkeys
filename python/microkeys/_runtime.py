@@ -1,8 +1,9 @@
 # The script runtime.  The MicroKeys app calls these functions on its
-# script thread: startup() once, then reload(), fire() and run_command() as
-# things happen.  Scripts don't use this module.
+# script thread: startup() once, then reload(), fire(), run_command(),
+# console() and action() as things happen.  Scripts don't use this module.
 
 import builtins
+import codeop
 import importlib
 import json
 import os
@@ -12,8 +13,9 @@ import time
 import traceback
 import types
 
-from ._native import native, LOG_INFO, LOG_OUTPUT, LOG_ERROR, FIRE_HOTKEY, FIRE_HOTSTRING, FIRE_COMMAND
-from . import _bindings, _keyspec, _settings
+from ._native import (native, LOG_INFO, LOG_OUTPUT, LOG_ERROR, FIRE_HOTKEY, FIRE_HOTSTRING, FIRE_COMMAND,
+                      FIRE_WINDOW, FIRE_TIMER, FIRE_CLIPBOARD)
+from . import _bindings, _keyspec, _packages, _settings, _store, _timers, clip, ui
 
 _PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -91,11 +93,21 @@ class _Script:
         self.collector = collector
 
 
+
+
 _config = {}
 _script_dir = None
 _scripts = {}
 _actions = {}
 _commands = {}
+_next_id = 0
+_published = None
+_scheduler = _timers.Scheduler()
+_console_lines = []
+_console_ns = {}
+
+# What's copied to the stubs folder for pip install -e, besides the package
+STUB_FILES = ["pyproject.toml", "_build_backend.py", "_microkeys.pyi", "VERSION"]
 
 
 def _log(text, level=LOG_INFO):
@@ -124,6 +136,10 @@ def _format_exception(exc):
     return "".join(lines).rstrip("\n")
 
 
+def _local_dir():
+    return _config.get("local_dir") or _config["data_dir"]
+
+
 def _write_editor_config(script_dir, lib_dir):
     # Point Pylance / Pyright at this version's microkeys package so editors
     # can autocomplete it.  Only touches a pyrightconfig.json MicroKeys wrote.
@@ -148,6 +164,39 @@ def _write_editor_config(script_dir, lib_dir):
         pass
 
 
+def _sync_stubs(lib_dir, target):
+    # Keep a copy of the package in a folder that doesn't move with each
+    # update, for "pip install -e" to point at.  Outside MicroKeys the package
+    # runs against the stand-ins in _offline.
+    if not os.path.isfile(os.path.join(lib_dir, "pyproject.toml")):
+        return
+    want = {}
+    for name in STUB_FILES:
+        if os.path.isfile(os.path.join(lib_dir, name)):
+            want[name] = os.path.join(lib_dir, name)
+    package = os.path.join(lib_dir, "microkeys")
+    for name in os.listdir(package):
+        if name.endswith(".py") or name == "py.typed":
+            want[os.path.join("microkeys", name)] = os.path.join(package, name)
+    try:
+        for rel, src in want.items():
+            dst = os.path.join(target, rel)
+            with open(src, "rb") as f:
+                data = f.read()
+            if os.path.isfile(dst):
+                with open(dst, "rb") as f:
+                    if f.read() == data:
+                        continue
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with open(dst, "wb") as f:
+                f.write(data)
+        for name in os.listdir(os.path.join(target, "microkeys")):
+            if name.endswith(".py") and os.path.join("microkeys", name) not in want:
+                os.unlink(os.path.join(target, "microkeys", name))
+    except OSError as e:
+        _error(f"Unable to update the stub package in {target}: {e}")
+
+
 def startup(config):
     _config.update(config)
     sys.stdout = _LogWriter(LOG_OUTPUT)
@@ -155,10 +204,11 @@ def startup(config):
     sys.argv = ["MicroKeys"]
     sys.dont_write_bytecode = True
     _install_sleep()
+    _store.load(os.path.join(_config["data_dir"], "store.json"))
     _configure(first=True)
     _log(f"MicroKeys {native.version()}, Python {sys.version.split()[0]}")
     _log(f"Scripts: {_script_dir}")
-    return reload(settings=False)
+    return reload(settings=False, starting=True)
 
 
 def _install_sleep():
@@ -178,6 +228,14 @@ def _install_sleep():
     time.sleep = sleep
 
 
+def _int_setting(settings, name):
+    try:
+        return int(settings.get(name) or 0)
+    except (TypeError, ValueError):
+        _error(f"The {name} setting should be a number, using {_settings.DEFAULTS[name]}")
+        return _settings.DEFAULTS[name]
+
+
 def _configure(first=False):
     # Read the settings and pass on the ones the app acts on.  Runs again on
     # every reload, so edits to settings.json take effect then.
@@ -185,22 +243,24 @@ def _configure(first=False):
     settings = _settings.load(_config, _error)
     script_dir = _config.get("script_dir") or settings.get("script_folder") or os.path.join(_config["documents_dir"], "MicroKeys")
     script_dir = os.path.abspath(os.path.expandvars(os.path.expanduser(script_dir)))
+    headless = _config.get("headless")
 
     if not os.path.isdir(script_dir):
         os.makedirs(script_dir, exist_ok=True)
-        if not _config.get("headless"):
+        if not headless:
             with open(os.path.join(script_dir, "MicroKeys.py"), "wt", encoding="utf-8") as f:
                 f.write(STARTER_SCRIPT)
             _log(f"Created a starter script in {script_dir}")
             native.toast("MicroKeys is running", f"It lives in the notification area. Your scripts are in {script_dir}")
-    if not _config.get("headless"):
+    if not headless:
         _write_editor_config(script_dir, _config["lib_dir"])
+        _sync_stubs(_config["lib_dir"], os.path.join(_local_dir(), "stubs"))
     if _script_dir is not None and _script_dir in sys.path:
         sys.path.remove(_script_dir)
     sys.path.insert(0, script_dir)
     _script_dir = script_dir
     # Relative paths in scripts mean the script folder
-    if not _config.get("headless"):
+    if not headless:
         os.chdir(script_dir)
 
     try:
@@ -208,7 +268,25 @@ def _configure(first=False):
     except Exception as e:
         _error(f"Bad abort_hotkey setting ({e}), using Ctrl+Alt+Backspace")
         mods, key, _ = _keyspec.parse_hotkey(_settings.DEFAULTS["abort_hotkey"])
-    native.configure(script_dir, mods, key, str(settings.get("update_feed") or ""), bool(settings.get("check_updates", True)))
+    native.configure(script_dir, mods, key, str(settings.get("update_feed") or ""), bool(settings.get("check_updates", True)),
+                     str(settings.get("editor") or ""))
+
+    # Packages scripts import, installed before the scripts load
+    _packages.activate(_local_dir())
+    specs = settings.get("packages") or []
+    if not isinstance(specs, list) or not all(isinstance(x, str) for x in specs):
+        _error('The packages setting should be a list of names, like ["requests"]')
+        specs = []
+    port = _int_setting(settings, "debug_port")
+    if not headless:
+        try:
+            if specs or port:
+                _packages.ensure(_config, specs + (["debugpy"] if port else []))
+            _packages.debug(port)
+        except KeyboardInterrupt:
+            _log("Stopped installing packages")
+        except Exception as e:
+            _error(f"Unable to install packages: {e}")
 
 
 def _script_files():
@@ -266,56 +344,115 @@ def _load_file(fn):
     return None
 
 
+def _collectors():
+    # What macros bound comes first, so it wins over the scripts' own
+    # bindings for the same key
+    scripts = [_scripts[fn].collector for fn in sorted(_scripts, key=str.lower)]
+    return ([_bindings.live] if _bindings.live is not None else []) + scripts
+
+
+def _handlers(attr):
+    return [entry for collector in _collectors() for entry in getattr(collector, attr)]
+
+
+def _new_id(taken):
+    # A binding keeps its id for as long as it exists, and ids aren't reused
+    # until they wrap, so a job queued for a binding that has since gone
+    # finds nothing.  They stay below 0xC000, where Windows hotkey ids end.
+    global _next_id
+    while True:
+        _next_id = _next_id + 1 if _next_id < 0xBF00 else 1
+        if _next_id not in taken and _next_id not in _actions:
+            return _next_id
+
+
 def _publish():
-    # Hand every binding from every loaded script to the app.  IDs are handed
-    # out fresh each time; the app drops the old set before taking the new one.
-    hotkeys, hotstrings, commands = [], [], []
-    _actions.clear()
-    _commands.clear()
-    next_id = 1
+    # Hand every binding to the app, and the timers to the scheduler
+    global _published
+    hotkeys, hotstrings, commands, events, timers = [], [], [], [], []
+    actions = {}
+    names = {}
     seen = {}
+    collectors = _collectors()
 
-    for fn in sorted(_scripts, key=str.lower):
-        collector = _scripts[fn].collector
+    def claim(entry, kind, collector):
+        if entry.id is None:
+            entry.id = _new_id(actions)
+        actions[entry.id] = (kind, entry, collector)
+        return entry.id
+
+    def clash(sig, entry, live, what):
+        # A second binding for the same thing loses.  Only two scripts
+        # disagreeing is worth a message; a macro's binding wins quietly.
+        if sig in seen:
+            if not live and not seen[sig][1]:
+                _error(f"{what} at {entry.source} is already bound at {seen[sig][0]}, ignoring it")
+            return True
+        seen[sig] = (entry.source, live)
+        return False
+
+    # A macro's hotkey without a when= takes the key in every window, so the
+    # scripts' bindings for it, filtered or not, step aside
+    taken = {(hk.mods, hk.key) for hk in (_bindings.live.hotkeys if _bindings.live is not None else []) if hk.when is None}
+
+    for collector in collectors:
+        live = collector is _bindings.live
         for hk in collector.hotkeys:
-            when = hk.when.fields() if hk.when else ("", "", "")
-            sig = ("hotkey", hk.mods, hk.key, when)
-            if sig in seen:
-                _error(f"{hk.description} at {hk.source} is already bound at {seen[sig]}, ignoring it")
+            if not live and (hk.mods, hk.key) in taken:
                 continue
-            seen[sig] = hk.source
-            _actions[next_id] = (FIRE_HOTKEY, hk)
-            hotkeys.append((next_id, hk.mods, hk.key, hk.description) + when)
-            next_id += 1
+            if not clash(("hotkey",) + hk.signature(), hk, live, hk.description):
+                when = hk.when.fields() if hk.when else ("", "", "")
+                hotkeys.append((claim(hk, FIRE_HOTKEY, collector), hk.mods, hk.key, hk.description) + when)
         for hs in collector.hotstrings:
-            when = hs.when.fields() if hs.when else ("", "", "")
-            sig = ("hotstring", hs.trigger if hs.case_sensitive else hs.trigger.lower(), when)
-            if sig in seen:
-                _error(f"Hotstring {hs.trigger!r} at {hs.source} is already bound at {seen[sig]}, ignoring it")
-                continue
-            seen[sig] = hs.source
-            _actions[next_id] = (FIRE_HOTSTRING, hs)
-            hotstrings.append((next_id, hs.trigger, hs.immediate, hs.case_sensitive) + when)
-            next_id += 1
+            if not clash(("hotstring",) + hs.signature(), hs, live, f"Hotstring {hs.trigger!r}"):
+                when = hs.when.fields() if hs.when else ("", "", "")
+                hotstrings.append((claim(hs, FIRE_HOTSTRING, collector), hs.trigger, hs.immediate, hs.case_sensitive) + when)
         for cmd in collector.commands:
-            if cmd.name in _commands:
-                _error(f"Command {cmd.name!r} at {cmd.source} is already defined at {_commands[cmd.name].source}, ignoring it")
-                continue
-            _commands[cmd.name] = cmd
-            _actions[next_id] = (FIRE_COMMAND, cmd)
-            commands.append((next_id, cmd.name))
-            next_id += 1
+            if not clash(("command", cmd.name), cmd, live, f"Command {cmd.name!r}"):
+                names[cmd.name] = cmd
+                commands.append((claim(cmd, FIRE_COMMAND, collector), cmd.name))
+        for ev in collector.window_events:
+            when = ev.when.fields() if ev.when else ("", "", "")
+            events.append((claim(ev, FIRE_WINDOW, collector), ev.event) + when)
+        # A one-time timer that has been handed over keeps its id until its
+        # job runs; the scheduler leaves it be
+        for timer in collector.timers:
+            claim(timer, FIRE_TIMER, collector)
+            timers.append(timer)
 
-    native.set_bindings(hotkeys, hotstrings, commands)
-    return len(hotkeys), len(hotstrings), len(commands)
+    _actions.clear()
+    _actions.update(actions)
+    _commands.clear()
+    _commands.update(names)
+    _bindings.loaded[:] = collectors
+    _bindings.changed = False
+    lists = (hotkeys, hotstrings, commands, events)
+    if lists != _published:
+        native.set_bindings(*lists)
+        _published = lists
+    if not _config.get("headless"):
+        _scheduler.set(timers)
+    return {"hotkey": len(hotkeys), "hotstring": len(hotstrings), "command": len(commands),
+            "timer": len([t for t in timers if not t.spent]), "window event": len(events)}
 
 
-def reload(settings=True):
+def _counts(counts):
+    # "3 hotkeys, 2 hotstrings, 1 command", plus the other kinds when there are any
+    parts = []
+    for name, count in counts.items():
+        if count or name in ("hotkey", "hotstring", "command"):
+            parts.append(f"{count} {name}{'s' if count != 1 else ''}")
+    return ", ".join(parts)
+
+
+def reload(settings=True, starting=False):
     if settings:
         _configure()
     files = _script_files()
     _purge_modules()
     importlib.invalidate_caches()
+    # What macros bound belonged to the old scripts
+    _bindings.live = _bindings.Collector(None)
     errors = []
     for fn in files:
         err = _load_file(fn)
@@ -325,8 +462,7 @@ def reload(settings=True):
         if fn not in files:
             del _scripts[fn]
 
-    hotkeys, hotstrings, commands = _publish()
-    counts = f"{hotkeys} hotkey{'s' if hotkeys != 1 else ''}, {hotstrings} hotstring{'s' if hotstrings != 1 else ''}, {commands} command{'s' if commands != 1 else ''}"
+    counts = _counts(_publish())
     if errors:
         summary = "; ".join(errors)
         _error(f"Loaded with errors: {summary}")
@@ -335,7 +471,12 @@ def reload(settings=True):
         loaded = len(files)
         _log(f"Loaded {loaded} script{'s' if loaded != 1 else ''}: {counts}")
         native.scripts_loaded(True, counts)
-    return not errors
+
+    ok = not errors
+    for entry in _handlers("starts" if starting else "reloads"):
+        ok = _run(entry.func, f"{entry.what} ({_bindings._name(entry.func)})") and ok
+    _finish()
+    return ok
 
 
 def _quietly(func, *args):
@@ -348,12 +489,13 @@ def _quietly(func, *args):
             pass
 
 
-def _report(what, e):
+def _report(what, e, toast):
     _error(f"Error in {what}:\n" + _format_exception(e))
-    native.toast("MicroKeys", f"{what} failed: {type(e).__name__}: {e}")
+    if toast:
+        native.toast("MicroKeys", f"{what} failed: {type(e).__name__}: {e}")
 
 
-def _run(func, what):
+def _run(func, what, toast=True):
     # Run a macro, reporting failures in the log and as a notification
     _quietly(native.macro_running, what)
     ok = True
@@ -365,10 +507,19 @@ def _run(func, what):
         pass
     except BaseException as e:
         ok = False
-        _quietly(_report, what, e)
+        _quietly(_report, what, e, toast)
     finally:
         _quietly(native.macro_running, "")
     return ok
+
+
+def _finish():
+    # After every job: hand over the bindings macros changed, save the store,
+    # and let a message the job showed go
+    if _bindings.changed:
+        _quietly(_publish)
+    _quietly(_store.save)
+    _quietly(ui._macro_done)
 
 
 def _erase(count):
@@ -377,10 +528,24 @@ def _erase(count):
 
 
 def fire(kind, id, extra):
+    try:
+        return _fire(kind, id, extra)
+    finally:
+        # Even if the abort hotkey cut this short, the timer can come round again
+        if kind == FIRE_TIMER:
+            _quietly(_scheduler.ran, id)
+        _finish()
+
+
+def _fire(kind, id, extra):
+    if kind == FIRE_CLIPBOARD:
+        return _clipboard_changed()
+    if kind == FIRE_TIMER:
+        _scheduler.ran(id)
     entry = _actions.get(id)
     if entry is None or entry[0] != kind:
         return True
-    kind, item = entry
+    kind, item, collector = entry
     if kind == FIRE_HOTKEY:
         what = f"{item.func.__name__} ({item.description})"
 
@@ -405,19 +570,123 @@ def fire(kind, id, extra):
 
     if kind == FIRE_COMMAND:
         return _run(item.func, f"command {item.name!r}")
+
+    if kind == FIRE_TIMER:
+        if item.once() and item in collector.timers:
+            collector.timers.remove(item)
+            _bindings.changed = True
+        # The abort hotkey dropped the job before it ran
+        if extra == "dropped":
+            return True
+        return _run(item.func, f"timer {item.describe()}")
+
+    if kind == FIRE_WINDOW:
+        from . import windows
+        try:
+            info = native.window_info(int(extra))
+        except ValueError:
+            info = None
+        if info is None:
+            return True
+        win = windows.Window(info)
+        return _run(lambda: item.func(win), f"{item.what} ({_bindings._name(item.func)})")
     return True
 
 
+def _clipboard_changed():
+    # Another program changed the clipboard
+    clip.record(_int_setting(_settings.current, "clipboard_history"))
+    if native.paused():
+        return True
+    ok = True
+    for entry in _handlers("clipboard"):
+        ok = _run(entry.func, f"on_change ({_bindings._name(entry.func)})") and ok
+    return ok
+
+
 def run_command(name):
-    cmd = _commands.get(name)
-    if cmd is None:
-        _error(f"No command named {name!r}")
+    try:
+        cmd = _commands.get(name)
+        if cmd is None:
+            _error(f"No command named {name!r}")
+            return False
+        _log(f"Running command {name!r}")
+        return _run(cmd.func, f"command {name!r}")
+    finally:
+        _finish()
+
+
+def console(line):
+    # A line typed at the log window's prompt.  Like Python's own prompt, a
+    # block such as "for x in y:" runs once a blank line ends it.
+    if not line.strip() and not _console_lines:
+        return True
+    _log((">>> " if not _console_lines else "... ") + line)
+    _console_lines.append(line)
+    try:
+        code = codeop.compile_command("\n".join(_console_lines), "<console>", "single")
+    except (SyntaxError, OverflowError, ValueError) as e:
+        _console_lines.clear()
+        native.console_state(False)
+        _error(_format_exception(e))
+        return True
+    if code is None:
+        native.console_state(True)
+        return True
+    _console_lines.clear()
+    native.console_state(False)
+
+    if not _console_ns:
+        exec("from microkeys import *\nimport microkeys", _console_ns)
+    # Each script under its own name, unless that name is taken by something
+    # else, like microkeys' own clip or keys
+    prefix = os.path.normcase(_script_dir + os.sep)
+    for script in _scripts.values():
+        name = script.module.__name__
+        have = _console_ns.get(name)
+        if have is None or os.path.normcase(getattr(have, "__file__", None) or "").startswith(prefix):
+            _console_ns[name] = script.module
+    try:
+        _run(lambda: exec(code, _console_ns), "the console", toast=False)
+    finally:
+        _finish()
+    return True
+
+
+def action(name):
+    # Something chosen in the app's menus that's done in Python
+    try:
+        if name == "install-packages":
+            done = []
+            _run(lambda: done.extend(_install_packages()), "installing packages")
+            if done:
+                return reload()
+            return True
+        _error(f"Unknown action {name!r}")
         return False
-    _log(f"Running command {name!r}")
-    return _run(cmd.func, f"command {name!r}")
+    finally:
+        _finish()
+
+
+def _install_packages():
+    # Ask which packages, install them, and add them to the packages setting
+    # so they're there after MicroKeys moves to a new Python
+    text = ui.input("Python packages to install from PyPI, separated by spaces:", title="Install Python packages")
+    specs = text.split() if text else []
+    if not specs:
+        return []
+    if not _packages.install(_config, specs, upgrade=True):
+        ui.msgbox("pip couldn't install " + ", ".join(specs) + ". The log has its messages.", title="Install Python packages")
+        return []
+    _settings.add_packages(_config, specs, _error)
+    _log("Installed " + ", ".join(specs))
+    native.toast("MicroKeys", "Installed " + ", ".join(specs))
+    return specs
 
 
 def shutdown():
+    _scheduler.stop()
+    _store.save()
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, _LogWriter):
             stream.flush()

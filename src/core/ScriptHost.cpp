@@ -13,6 +13,7 @@ ScriptHost::ScriptHost(IAppShell* shell, IPlatform* platform) {
 	Shell = shell;
 	Platform = platform;
 	CancelFlag = false;
+	Paused = false;
 	_failures = 0;
 	_inNative = 0;
 	_scriptHost = this;
@@ -33,19 +34,19 @@ void ScriptHost::Start(const HostStartup& startup) {
 	_thread = thread(&ScriptHost::ThreadMain, this);
 }
 
-void ScriptHost::Post(const ScriptJob& job) {
-	// Queue a job for the script thread
+bool ScriptHost::Post(const ScriptJob& job) {
+	// Queue a job for the script thread.  False if it was left out because too
+	// many are waiting; one already waiting that covers it counts as queued.
 	bool dropped = false;
 	{
 		lock_guard<mutex> guard(_lock);
 		if (_finished) {
-			return;
+			return false;
 		}
-		if (job.Type == ScriptJob::Reload) {
-			for (auto& cur : _jobs) {
-				if (cur.Type == ScriptJob::Reload) {
-					return;
-				}
+		// One waiting reload, or one waiting clipboard change, covers any more
+		for (auto& cur : _jobs) {
+			if (cur.Type == job.Type && (job.Type == ScriptJob::Reload || (job.Type == ScriptJob::Fire && job.FireKind == FIRE_CLIPBOARD && cur.FireKind == FIRE_CLIPBOARD))) {
+				return true;
 			}
 		}
 		if (job.Type == ScriptJob::Fire && _jobs.size() >= MAX_PENDING_JOBS) {
@@ -57,9 +58,10 @@ void ScriptHost::Post(const ScriptJob& job) {
 	}
 	if (dropped) {
 		Shell->Log(LOG_ERROR, "Too many macros are waiting to run, ignoring this one");
-		return;
+		return false;
 	}
 	_jobReady.notify_one();
+	return true;
 }
 
 void ScriptHost::PostReload() {
@@ -68,13 +70,13 @@ void ScriptHost::PostReload() {
 	Post(job);
 }
 
-void ScriptHost::PostFire(int kind, int id, const string& extra) {
+bool ScriptHost::PostFire(int kind, int id, const string& extra) {
 	ScriptJob job;
 	job.Type = ScriptJob::Fire;
 	job.FireKind = kind;
 	job.ID = id;
 	job.Text = extra;
-	Post(job);
+	return Post(job);
 }
 
 void ScriptHost::PostCommand(const string& name) {
@@ -84,20 +86,50 @@ void ScriptHost::PostCommand(const string& name) {
 	Post(job);
 }
 
+void ScriptHost::PostConsole(const string& line) {
+	ScriptJob job;
+	job.Type = ScriptJob::Console;
+	job.Text = line;
+	Post(job);
+}
+
+void ScriptHost::PostAction(const string& name) {
+	ScriptJob job;
+	job.Type = ScriptJob::Action;
+	job.Text = name;
+	Post(job);
+}
+
 void ScriptHost::Cancel() {
 	// Stop whatever is running, and anything waiting behind it.  The flag
 	// stops our own long calls (typing, sleep), the interrupt stops Python
 	// code, including time.sleep().
+	vector<ScriptJob> dropped;
 	{
 		lock_guard<mutex> guard(_lock);
 		for (auto it = _jobs.begin(); it != _jobs.end();) {
-			if (it->Type == ScriptJob::Fire || it->Type == ScriptJob::Command) {
+			if (it->Type == ScriptJob::Fire || it->Type == ScriptJob::Command || it->Type == ScriptJob::Console || it->Type == ScriptJob::Action) {
+				if (it->Type == ScriptJob::Fire && it->FireKind == FIRE_TIMER) {
+					dropped.push_back(*it);
+				}
 				it = _jobs.erase(it);
 			}
 			else {
 				++it;
 			}
 		}
+		// The timer thread waits to hear that a timer ran before handing it
+		// over again, so tell it about the ones that won't
+		for (auto& job : dropped) {
+			job.Text = "dropped";
+			_jobs.push_back(job);
+		}
+	}
+	if (!dropped.empty()) {
+		_jobReady.notify_one();
+	}
+	{
+		lock_guard<mutex> guard(_lock);
 		if (!_busy) {
 			return;
 		}
@@ -302,13 +334,15 @@ bool ScriptHost::InitPython() {
 	}
 	_runtime = runtime;
 
-	PyObject* config_dict = Py_BuildValue("{s:s,s:s,s:s,s:s,s:s,s:O}",
+	PyObject* config_dict = Py_BuildValue("{s:s,s:s,s:s,s:s,s:s,s:s,s:O,s:O}",
 		"app_dir", Startup.AppDir.c_str(),
 		"lib_dir", Startup.LibDir.c_str(),
 		"data_dir", Startup.DataDir.c_str(),
 		"documents_dir", Startup.DocumentsDir.c_str(),
 		"script_dir", Startup.ScriptDir.c_str(),
-		"headless", Startup.Headless ? Py_True : Py_False);
+		"local_dir", Startup.LocalDir.c_str(),
+		"headless", Startup.Headless ? Py_True : Py_False,
+		"updates", Startup.Updates ? Py_True : Py_False);
 	PyObject* ret = config_dict ? PyObject_CallMethod(runtime, "startup", "O", config_dict) : NULL;
 	Py_XDECREF(config_dict);
 	if (ret == NULL) {
@@ -333,6 +367,12 @@ void ScriptHost::RunJob(const ScriptJob& job) {
 		break;
 	case ScriptJob::Command:
 		ret = PyObject_CallMethod(runtime, "run_command", "s", job.Text.c_str());
+		break;
+	case ScriptJob::Console:
+		ret = PyObject_CallMethod(runtime, "console", "s", job.Text.c_str());
+		break;
+	case ScriptJob::Action:
+		ret = PyObject_CallMethod(runtime, "action", "s", job.Text.c_str());
 		break;
 	default:
 		return;

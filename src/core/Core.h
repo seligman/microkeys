@@ -35,3 +35,10 @@ using namespace std;
 #define FIRE_HOTKEY		1
 #define FIRE_HOTSTRING	2
 #define FIRE_COMMAND	3
+#define FIRE_WINDOW		4
+#define FIRE_TIMER		5
+#define FIRE_CLIPBOARD	6
+
+// Window events scripts can bind
+#define WINDOW_ACTIVATE	1
+#define WINDOW_OPEN		2

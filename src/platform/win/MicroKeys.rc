@@ -18,6 +18,7 @@ BEGIN
         MENUITEM "&Reload scripts",             ID_FILE_RELOADPYTHON
         MENUITEM "&Open script folder",         ID_EDITSCRIPTS
         MENUITEM "Edit &settings",              ID_OPENSETTINGS
+        MENUITEM "Install Python &packages...", ID_INSTALLPACKAGES
         MENUITEM SEPARATOR
         MENUITEM "&Clear log",                  ID_CLEARLOG
         MENUITEM SEPARATOR

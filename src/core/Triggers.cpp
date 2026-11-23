@@ -2,6 +2,8 @@
 #include "Text.h"
 
 #define HOTSTRING_BUFFER	100
+// How long after a window appears a title change can still make it match
+#define WINDOW_TITLE_WAIT	2000
 
 static const u32string _endChars = U" \n\t.,;:!?-()[]{}\"'/\\";
 
@@ -44,10 +46,35 @@ Triggers::Triggers(ITriggerSink* sink) {
 }
 
 void Triggers::SetBindings(const Bindings& bindings, const WindowInfo& foreground) {
-	// Swap in a new set of bindings, releasing everything the old set held
+	// Swap in a new set of bindings, releasing everything the old set held.
+	// A binding keeps its ID while it exists, so a problem with one that's
+	// already been reported isn't reported again, and a new window still
+	// waiting for its title keeps waiting.
+	map<uint64_t, PendingWindow> pending = _pending;
 	Clear();
 	_bindings = bindings;
-	_reported.clear();
+	for (auto& cur : pending) {
+		vector<int> ids;
+		for (int id : cur.second.IDs) {
+			for (auto& ev : _bindings.WindowEvents) {
+				if (ev.ID == id && ev.Event == WINDOW_OPEN) {
+					ids.push_back(id);
+				}
+			}
+		}
+		if (!ids.empty()) {
+			cur.second.IDs = ids;
+			_pending[cur.first] = cur.second;
+		}
+	}
+	set<int> reported;
+	for (auto& hk : _bindings.Hotkeys) {
+		if (_reported.count(hk.ID) > 0) {
+			reported.insert(hk.ID);
+		}
+	}
+	_reported = reported;
+	_lastActive = foreground.Handle;
 	Refresh(foreground);
 }
 
@@ -59,6 +86,7 @@ void Triggers::Clear() {
 	_registered.clear();
 	_bindings = Bindings();
 	_buffer.clear();
+	_pending.clear();
 }
 
 void Triggers::SetPaused(bool paused, const WindowInfo& foreground) {
@@ -210,6 +238,101 @@ void Triggers::ResetBuffer() {
 	_buffer.clear();
 }
 
+void Triggers::FireWindow(int id, const WindowInfo& window) {
+	_sink->Fire(FIRE_WINDOW, id, to_string(window.Handle));
+}
+
+void Triggers::OnActivated(const WindowInfo& window) {
+	// Another window came to the front
+	if (window.Handle == _lastActive || window.Handle == 0) {
+		return;
+	}
+	_lastActive = window.Handle;
+	if (_paused) {
+		return;
+	}
+	for (auto& ev : _bindings.WindowEvents) {
+		if (ev.Event == WINDOW_ACTIVATE && ev.When.Matches(window)) {
+			FireWindow(ev.ID, window);
+		}
+	}
+}
+
+void Triggers::OnWindowOpened(const WindowInfo& window, uint64_t nowMs) {
+	// A window appeared.  Bindings that care about the title get another
+	// look when it changes, since many programs set it a moment later.
+	if (_paused) {
+		return;
+	}
+	PendingWindow pending;
+	for (auto& ev : _bindings.WindowEvents) {
+		if (ev.Event != WINDOW_OPEN) {
+			continue;
+		}
+		if (ev.When.Matches(window)) {
+			FireWindow(ev.ID, window);
+		}
+		else if (!ev.When.Title.empty()) {
+			pending.IDs.push_back(ev.ID);
+		}
+	}
+	if (!pending.IDs.empty()) {
+		pending.Deadline = nowMs + WINDOW_TITLE_WAIT;
+		_pending[window.Handle] = pending;
+	}
+}
+
+void Triggers::OnWindowTitle(const WindowInfo& window, uint64_t nowMs) {
+	// A window's title changed; it may now match an on_open binding
+	auto it = _pending.find(window.Handle);
+	if (it == _pending.end()) {
+		return;
+	}
+	if (nowMs > it->second.Deadline || _paused) {
+		_pending.erase(it);
+		return;
+	}
+	vector<int> waiting;
+	for (int id : it->second.IDs) {
+		bool fired = false;
+		for (auto& ev : _bindings.WindowEvents) {
+			if (ev.ID == id && ev.When.Matches(window)) {
+				FireWindow(id, window);
+				fired = true;
+			}
+		}
+		if (!fired) {
+			waiting.push_back(id);
+		}
+	}
+	if (waiting.empty()) {
+		_pending.erase(it);
+	}
+	else {
+		it->second.IDs = waiting;
+	}
+}
+
+void Triggers::OnWindowClosed(uint64_t handle) {
+	_pending.erase(handle);
+	if (handle == _lastActive) {
+		_lastActive = 0;
+	}
+}
+
+bool Triggers::IsPendingWindow(uint64_t handle) const {
+	return _pending.count(handle) > 0;
+}
+
+bool Triggers::WantsWindowEvent(int event) const {
+	for (auto& ev : _bindings.WindowEvents) {
+		if (ev.Event == event) {
+			return true;
+		}
+	}
+	return false;
+}
+
 int Triggers::FindCommand(const string& name) const {
 	// Look up a named command, 0 if there isn't one
 	for (auto& cmd : _bindings.Commands) {
@@ -236,6 +359,11 @@ bool Triggers::WatchesTitles() const {
 			return true;
 		}
 	}
+	for (auto& ev : _bindings.WindowEvents) {
+		if (ev.Event == WINDOW_OPEN && !ev.When.Title.empty()) {
+			return true;
+		}
+	}
 	return false;
 }
 
@@ -251,7 +379,7 @@ bool Triggers::HasFilters() const {
 			return true;
 		}
 	}
-	return false;
+	return WantsWindowEvent(WINDOW_ACTIVATE);
 }
 
 set<int> Triggers::Registered() const {

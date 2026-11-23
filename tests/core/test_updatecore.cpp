@@ -13,10 +13,10 @@ static int* _checks = NULL;
 static const char* _feed =
 	"{\n"
 	"  \"version\": \"1.2.0\",\n"
-	"  \"url_x64\": \"https://example.com/apps/microkeys/MicroKeys-1.2.0-x64.zip\",\n"
+	"  \"url_x64\": \"https://example.com/releases/MicroKeys-1.2.0-x64.zip\",\n"
 	"  \"sha256_x64\": \"aa11\",\n"
 	"  \"size_x64\": 15000000,\n"
-	"  \"url_arm64\": \"https://example.com/apps/microkeys/MicroKeys-1.2.0-arm64.zip\",\n"
+	"  \"url_arm64\": \"https://example.com/releases/MicroKeys-1.2.0-arm64.zip\",\n"
 	"  \"sha256_arm64\": \"bb22\",\n"
 	"  \"size_arm64\": 14000000,\n"
 	"  \"notes\": \"Line one\\nLine two\"\n"
@@ -57,14 +57,14 @@ int RunUpdateCoreTests(int& checks) {
 
 	UPDATECOREFEED feed;
 	memset(&feed, 0, sizeof(feed));
-	feed.pszDefaultUrl = "https://example.com/apps/microkeys/";
-	CHECK(strcmp(UpdateCore_FeedUrl(&feed), "https://example.com/apps/microkeys/") == 0);
-	CHECK(UpdateCore_FileHostAllowed(&feed, "https://example.com/apps/microkeys/x.zip") == 1);
+	feed.pszDefaultUrl = "https://example.com/releases/";
+	CHECK(strcmp(UpdateCore_FeedUrl(&feed), "https://example.com/releases/") == 0);
+	CHECK(UpdateCore_FileHostAllowed(&feed, "https://example.com/releases/x.zip") == 1);
 	CHECK(UpdateCore_FileHostAllowed(&feed, "https://other.example/x.zip") == 0);
 	feed.pszConfiguredUrl = "https://localhost/test/";
 	CHECK(strcmp(UpdateCore_FeedUrl(&feed), "https://localhost/test/") == 0);
 	feed.pszConfiguredUrl = "https://other.example/test/";
-	CHECK(strcmp(UpdateCore_FeedUrl(&feed), "https://example.com/apps/microkeys/") == 0);
+	CHECK(strcmp(UpdateCore_FeedUrl(&feed), "https://example.com/releases/") == 0);
 
 	return _failures;
 }

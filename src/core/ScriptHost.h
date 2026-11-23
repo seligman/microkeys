@@ -10,13 +10,15 @@ public:
 	string DataDir;
 	string DocumentsDir;
 	string ScriptDir;
+	string LocalDir;
 	string PythonZip;
 	bool Headless = false;
+	bool Updates = true;
 };
 
 class ScriptJob {
 public:
-	enum Kind { Reload, Fire, Command, Quit };
+	enum Kind { Reload, Fire, Command, Console, Action, Quit };
 	Kind Type = Reload;
 	int FireKind = 0;
 	int ID = 0;
@@ -32,8 +34,10 @@ public:
 	~ScriptHost();
 	void Start(const HostStartup& startup);
 	void PostReload();
-	void PostFire(int kind, int id, const string& extra);
+	bool PostFire(int kind, int id, const string& extra);
 	void PostCommand(const string& name);
+	void PostConsole(const string& line);
+	void PostAction(const string& name);
 	void Cancel();
 	bool IsBusy();
 	bool Stop(int timeoutMs);
@@ -50,12 +54,14 @@ public:
 	IPlatform* Platform;
 	HostStartup Startup;
 	atomic<bool> CancelFlag;
+	// Set by the app while the user has paused MicroKeys
+	atomic<bool> Paused;
 
 private:
 	void ThreadMain();
 	bool InitPython();
 	void RunJob(const ScriptJob& job);
-	void Post(const ScriptJob& job);
+	bool Post(const ScriptJob& job);
 	void LogPythonError(const string& context);
 
 	thread _thread;

@@ -17,17 +17,20 @@ Done for 1.0:
 - [x] Zip releases and a self-updater
 - [x] Unit tests (core and Python package), headless integration tests, GUI tests, GitHub Actions
 
-Next (P2):
+Done for 1.1:
 
-- [ ] Register and unregister bindings from code; `@on_start` and `@on_reload`
-- [ ] Window events: foreground change, window opened
-- [ ] Timers: `every()`, `at()`, `after()`
-- [ ] Clipboard-changed events and clipboard history
-- [ ] Rich clipboard: HTML, RTF, file lists, images
-- [ ] Log window with clickable tracebacks
-- [ ] REPL console and `debugpy` attach
-- [ ] `store`: a dict saved between runs
-- [ ] `pip install` into a MicroKeys-managed `site-packages`
+- [x] An installable stub package (`pip install -e`) for editors and plain Python
+- [x] Register and unregister bindings from code; `@on_start` and `@on_reload`
+- [x] Window events: foreground change, window opened
+- [x] Timers: `every()`, `at()`, `after()`
+- [x] Clipboard-changed events and clipboard history
+- [x] Rich clipboard: HTML, RTF, file lists, images, save and restore
+- [x] Log window with clickable tracebacks
+- [x] Python prompt in the log window, and `debugpy` attach
+- [x] `store`: a dict saved between runs
+- [x] `pip install` into a MicroKeys-managed `site-packages`
+- [x] `ui.show()`: a message on screen while a macro works, or to say it's done
+- [x] Builds without the updater (`make_release.py --no-updates`)
 
 Later (P3):
 

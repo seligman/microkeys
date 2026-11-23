@@ -3,7 +3,10 @@
 # Build the HTML documentation: the guide and cookbook from docs/*.md, plus
 # an API reference read from the microkeys package's docstrings.
 #
-# Usage: gen_docs.py --out <folder>
+# Usage: gen_docs.py --out <folder> [--no-updates]
+#
+# Lines in the Markdown that end with UPDATES_MARK are about the updater,
+# and --no-updates (for builds without it) leaves them out.
 
 import argparse
 import html
@@ -23,6 +26,8 @@ PAGES = [
     ("cookbook.html", "Cookbook", os.path.join(ROOT, "docs", "cookbook.md")),
     ("api.html", "API reference", None),
 ]
+
+UPDATES_MARK = "<!-- updates -->"
 
 CSS = """
 :root { --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --code-bg: #f6f8fa; --border: #d1d9e0; --link: #0969da; }
@@ -45,6 +50,17 @@ h2 { border-bottom: 1px solid var(--border); padding-bottom: 4px; margin-top: 32
 .doc { margin-left: 20px; }
 .muted { color: var(--muted); }
 """
+
+
+def for_build(text, updates):
+    out = []
+    for line in text.split("\n"):
+        if line.endswith(UPDATES_MARK):
+            if not updates:
+                continue
+            line = line[:-len(UPDATES_MARK)].rstrip()
+        out.append(line)
+    return "\n".join(out)
 
 
 def inline(text):
@@ -136,7 +152,15 @@ def module_section(title, module, names):
         out.append(docstring(module))
     for name in names:
         obj = getattr(module, name)
-        if inspect.isclass(obj):
+        if isinstance(obj, dict):
+            # store: an object, documented by its class
+            out.append(f'<div class="sig" id="{title}.{name}">{html.escape(name)}</div><div class="doc">{docstring(type(obj))}')
+            for attr, value in type(obj).__dict__.items():
+                if inspect.isfunction(value) and not attr.startswith("_"):
+                    sig = signature(attr, value).replace("(self, ", "(").replace("(self)", "()")
+                    out.append(f'<div class="sig">.{html.escape(sig)}</div><div class="doc">{docstring(value)}</div>')
+            out.append("</div>")
+        elif inspect.isclass(obj):
             out.append(f'<div class="sig" id="{title}.{name}">class {html.escape(name)}</div><div class="doc">{docstring(obj)}')
             for attr, value in obj.__dict__.items():
                 if attr.startswith("_"):
@@ -158,17 +182,20 @@ def api_page():
         "<h1>API reference</h1>",
         f'<p class="muted">MicroKeys {html.escape(read_version())}.  Everything is in the <code>microkeys</code> package: '
         "<code>from microkeys import hotkey, hotstring, keys, clip</code> and so on.</p>",
-        module_section("microkeys", microkeys, ["hotkey", "hotstring", "command", "log", "sleep", "run", "open", "paste_text", "version"]),
+        module_section("microkeys", microkeys, ["hotkey", "hotstring", "command", "every", "after", "at", "on_start", "on_reload",
+                                                "unbind", "store", "log", "sleep", "run", "open", "paste_text", "version"]),
         module_section("keys", keys, ["press", "type", "down", "up", "hold"]),
         "<h3>Key names</h3><p>Besides single characters such as <code>a</code>, <code>7</code> or <code>/</code>:</p>",
         "<p>" + ", ".join(f"<code>{k}</code>" for k in keys.NAMED_KEYS) + "</p>",
         "<p>Also accepted: <code>control</code>, <code>option</code>, <code>win</code>, <code>cmd</code>, <code>return</code>, "
         "<code>esc</code>, <code>del</code>, <code>ins</code>, <code>pgup</code>, <code>pgdn</code>, and <code>primary</code> "
         "(Ctrl on Windows, Cmd on macOS).</p>",
-        module_section("clip", clip, ["get", "set", "copy_selection", "paste_text", "wait_for_change", "sequence"]),
+        module_section("clip", clip, ["get", "set", "get_html", "get_rtf", "get_files", "get_image", "formats", "copy_selection",
+                                      "paste_text", "save", "restore", "history", "clear_history", "on_change", "wait_for_change", "sequence"]),
         module_section("mouse", mouse, ["position", "move", "move_by", "click", "down", "up", "scroll", "drag"]),
-        module_section("windows", windows, ["active", "all", "find", "find_one", "wait_for", "monitors", "app", "match", "Window", "Monitor"]),
-        module_section("ui", ui, ["msgbox", "input", "choose", "toast"]),
+        module_section("windows", windows, ["active", "all", "find", "find_one", "wait_for", "monitors", "app", "match", "on_activate",
+                                            "on_open", "Window", "Monitor"]),
+        module_section("ui", ui, ["msgbox", "input", "choose", "toast", "show", "hide"]),
     ]
     return "\n".join(parts)
 
@@ -189,6 +216,7 @@ def page(title, body, current):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", required=True)
+    parser.add_argument("--no-updates", action="store_true", help="leave out the updater")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     for fn, title, source in PAGES:
@@ -196,7 +224,7 @@ def main():
             body = api_page()
         else:
             with open(source, encoding="utf-8") as f:
-                body = markdown(f.read())
+                body = markdown(for_build(f.read(), not args.no_updates))
         with open(os.path.join(args.out, fn), "w", encoding="utf-8") as f:
             f.write(page(title, body, fn))
     print(f"Wrote {len(PAGES)} pages to {args.out}")

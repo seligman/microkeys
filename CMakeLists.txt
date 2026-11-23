@@ -59,16 +59,28 @@ if(WIN32)
 		src/platform/win/WinMain.cpp
 		src/platform/win/WinApp.cpp
 		src/platform/win/WinPlatform.cpp
+		src/platform/win/WinClipboard.cpp
 		src/platform/win/WinKeys.cpp
 		src/platform/win/WinText.cpp
-		src/platform/win/WinUpdate.cpp
+		src/platform/win/WinOverlay.cpp
 		src/platform/win/MicroKeys.rc
 	)
 	target_compile_definitions(MicroKeysApp PRIVATE ${MK_WIN_DEFS} MK_PYLIB="${MK_PYLIB}" MK_PYVER="${MK_PYVER}")
+	# With MICROKEYS_UPDATES off there's no updater at all: no code, no
+	# setting, and nothing about updates in the docs
+	option(MICROKEYS_UPDATES "Build in the self-updater" ON)
+	if(MICROKEYS_UPDATES)
+		target_sources(MicroKeysApp PRIVATE src/platform/win/WinUpdate.cpp)
+		set(MK_DOCS_FLAGS "")
+	else()
+		message(STATUS "Building without the updater")
+		target_compile_definitions(MicroKeysApp PRIVATE MK_NO_UPDATES)
+		set(MK_DOCS_FLAGS --no-updates)
+	endif()
 	target_include_directories(MicroKeysApp PRIVATE "${MK_PYROOT}/sdk/include" src/platform/win)
 	target_link_directories(MicroKeysApp PRIVATE "${MK_PYROOT}/sdk/libs")
 	target_link_libraries(MicroKeysApp PRIVATE mkcore ${MK_PYLIB}
-		user32 gdi32 shell32 comctl32 comdlg32 winhttp bcrypt dwmapi shcore ole32 advapi32 shlwapi version)
+		user32 gdi32 shell32 comctl32 comdlg32 winhttp bcrypt dwmapi shcore ole32 advapi32 shlwapi version windowscodecs)
 	target_link_options(MicroKeysApp PRIVATE /MANIFEST:NO)
 
 	add_executable(MicroKeys WIN32
@@ -82,8 +94,10 @@ if(WIN32)
 	# Lay the build out the way a release unpacks:
 	#   stage/<config>/MicroKeys/MicroKeys.exe                 the launcher
 	#   stage/<config>/MicroKeys/app-<version>/MicroKeysApp.exe plus the Python runtime
-	#   stage/<config>/MicroKeys/app-<version>/lib/microkeys    the Python package
+	#   stage/<config>/MicroKeys/app-<version>/lib/microkeys    the Python package,
+	#     which with lib/pyproject.toml also installs with "pip install -e"
 	set(MK_STAGE "${CMAKE_BINARY_DIR}/stage/$<CONFIG>/MicroKeys")
+	file(WRITE "${CMAKE_BINARY_DIR}/VERSION" "${MICROKEYS_VERSION}\n")
 	set(MK_STAGE_APP "${MK_STAGE}/app-${MICROKEYS_VERSION}")
 	add_custom_command(TARGET MicroKeysApp POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E make_directory "${MK_STAGE_APP}/lib"
@@ -96,8 +110,9 @@ if(WIN32)
 		COMMAND ${CMAKE_COMMAND} -E make_directory "${MK_STAGE_APP}/lib"
 		COMMAND ${CMAKE_COMMAND} -E rm -rf "${MK_STAGE_APP}/lib/microkeys"
 		COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/python/microkeys" "${MK_STAGE_APP}/lib/microkeys"
-		COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/python/_microkeys.pyi" "${MK_STAGE_APP}/lib/"
-		COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_SOURCE_DIR}/tools/gen_docs.py" --out "${MK_STAGE_APP}/docs"
+		COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/python/_microkeys.pyi" "${CMAKE_SOURCE_DIR}/python/pyproject.toml"
+			"${CMAKE_SOURCE_DIR}/python/_build_backend.py" "${CMAKE_BINARY_DIR}/VERSION" "${MK_STAGE_APP}/lib/"
+		COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_SOURCE_DIR}/tools/gen_docs.py" --out "${MK_STAGE_APP}/docs" ${MK_DOCS_FLAGS}
 	)
 	add_dependencies(MicroKeysPython MicroKeysApp)
 	add_custom_command(TARGET MicroKeys POST_BUILD

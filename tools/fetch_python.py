@@ -16,8 +16,12 @@ import sys
 import urllib.request
 import zipfile
 
-# Files in the embeddable zip that MicroKeys doesn't ship
-SKIP_RUNTIME = {"python.exe", "pythonw.exe", "python.cat"}
+# Files in the embeddable zip that MicroKeys doesn't ship.  python.exe stays,
+# to run pip.
+SKIP_RUNTIME = {"pythonw.exe", "python.cat"}
+
+# Bump when the unpacked layout changes, so existing copies are redone
+LAYOUT = "2"
 
 
 def load_pins():
@@ -68,7 +72,13 @@ def unpack_runtime(zip_fn, dest):
     with zipfile.ZipFile(zip_fn) as zf:
         for info in zf.infolist():
             name = info.filename
-            if "/" in name or name in SKIP_RUNTIME or name.endswith("._pth"):
+            if "/" in name or name in SKIP_RUNTIME:
+                continue
+            if name.endswith("._pth"):
+                # Named for python.exe rather than the DLL, so it keeps that
+                # one isolated without touching MicroKeysApp.exe's own setup
+                with open(os.path.join(dest, "python._pth"), "w", newline="\r\n") as f:
+                    f.write(name[:-5] + ".zip\n.\n")
                 continue
             with zf.open(info) as src, open(os.path.join(dest, name), "wb") as dst:
                 shutil.copyfileobj(src, dst)
@@ -85,7 +95,7 @@ def main():
     root = os.path.abspath(os.path.join(args.dest, f"python-{ver}-{args.arch}"))
     marker = os.path.join(root, "ok.txt")
     pin = pins[args.arch]
-    stamp = pin["sdk"]["sha256"] + pin["runtime"]["sha256"]
+    stamp = pin["sdk"]["sha256"] + pin["runtime"]["sha256"] + LAYOUT
 
     if os.path.isfile(marker):
         with open(marker) as f:

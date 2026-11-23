@@ -4,6 +4,22 @@
 
 class WinApp;
 
+#ifdef MK_NO_UPDATES
+
+class Updater {
+	// A build without the updater: it never has a feed, so nothing about
+	// updates shows
+public:
+	Updater(WinApp* app) {}
+	void Configure(const string& feed, bool checkDaily) {}
+	bool HasFeed() { return false; }
+	void Check(bool manual) {}
+	void OnMessage(WPARAM wParam, LPARAM lParam) {}
+	void Startup(DWORD updatedFrom, const string& updatedVersion) {}
+};
+
+#else
+
 class Updater {
 	// Self-update: read latest.json from the feed, download this
 	// architecture's zip, check its size and SHA-256, unpack it into its own
@@ -38,3 +54,5 @@ private:
 	string _zipPath;
 	thread _thread;
 };
+
+#endif

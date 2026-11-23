@@ -170,3 +170,129 @@ def select_five_lines():
     with keys.hold("shift"):
         keys.press(*["down"] * 5)
 ```
+
+## Pick from the clipboard history
+
+```python
+from microkeys import hotkey, clip, ui
+
+@hotkey("ctrl+alt+h")
+def paste_from_history():
+    items = clip.history()
+    labels = [f"{i + 1}. " + text.replace("\n", " ")[:80] for i, text in enumerate(items)]
+    choice = ui.choose(labels, prompt="Paste which?")
+    if choice is not None:
+        clip.paste_text(items[labels.index(choice)])
+```
+
+## Paste without formatting
+
+```python
+from microkeys import hotkey, clip
+
+@hotkey("ctrl+shift+v")
+def paste_plain():
+    clip.paste_text(clip.get())
+```
+
+## Remind me later
+
+```python
+from microkeys import hotkey, after, ui
+
+@hotkey("ctrl+alt+t")
+def remind():
+    text = ui.input("Remind you of what, in 10 minutes?")
+    if text:
+        after(10 * 60, lambda: ui.msgbox(text, title="Reminder"))
+```
+
+## Show progress
+
+```python
+import urllib.request
+from pathlib import Path
+from microkeys import hotkey, clip, ui
+
+@hotkey("ctrl+alt+g")
+def download_links():
+    # The links on the clipboard, one per line, saved in Downloads
+    urls = (clip.get() or "").split()
+    for i, url in enumerate(urls, 1):
+        ui.show(f"Downloading {i} of {len(urls)}\n{url}")
+        name = url.rstrip("/").rsplit("/", 1)[-1] or "download"
+        urllib.request.urlretrieve(url, Path.home() / "Downloads" / name)
+    ui.show(f"Downloaded {len(urls)} files")
+```
+
+## Show when a mode is on
+
+```python
+import math
+from microkeys import hotkey, unbind, keys, ui
+
+@hotkey("ctrl+alt+j")
+def arrow_keys_on():
+    hotkey("j", lambda: keys.press("down"))
+    hotkey("k", lambda: keys.press("up"))
+    hotkey("escape", arrow_keys_off)
+    ui.show("J and K are arrow keys (Escape to stop)", seconds=math.inf)
+
+def arrow_keys_off():
+    for key in ("j", "k", "escape"):
+        unbind(hotkey=key)
+    ui.hide()
+```
+
+## Count something, across restarts
+
+```python
+from microkeys import hotkey, store, ui
+
+@hotkey("ctrl+alt+c")
+def one_more():
+    store["coffees"] = store.get("coffees", 0) + 1
+    ui.toast(f"Coffee number {store['coffees']}")
+```
+
+## Fill in a dialog when it opens
+
+```python
+from microkeys import windows, keys
+
+@windows.on_open(when=windows.match(process="notepad.exe", title="Save As"))
+def name_the_file(win):
+    keys.type("notes.txt")
+```
+
+## Save an image from the clipboard
+
+```python
+import datetime, os
+import microkeys
+from microkeys import hotkey, clip, ui
+
+@hotkey("ctrl+alt+i")
+def save_clipboard_image():
+    png = clip.get_image()
+    if png is None:
+        ui.toast("There's no image on the clipboard")
+        return
+    fn = os.path.expanduser(datetime.datetime.now().strftime("~/Pictures/clip-%Y%m%d-%H%M%S.png"))
+    with open(fn, "wb") as f:
+        f.write(png)
+    microkeys.open(fn)
+```
+
+## Use a package from PyPI
+
+Add `"packages": ["requests"]` to your settings, or choose **Install Python packages...** in the tray menu, and then:
+
+```python
+import requests
+from microkeys import hotkey, keys
+
+@hotkey("ctrl+alt+w")
+def type_my_ip():
+    keys.type(requests.get("https://api.ipify.org", timeout=10).text)
+```

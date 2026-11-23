@@ -24,15 +24,27 @@ kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 2
 VK = {"ctrl": 0x11, "alt": 0x12, "shift": 0x10, "back": 0x08, "delete": 0x2E, "enter": 0x0D, "f7": 0x76,
-      "f8": 0x77, "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B, "a": 0x41, "i": 0x49, "l": 0x4C,
-      "m": 0x4D, "r": 0x52}
+      "f8": 0x77, "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B, "a": 0x41, "b": 0x42, "i": 0x49, "j": 0x4A,
+      "k": 0x4B, "l": 0x4C, "m": 0x4D, "r": 0x52, "u": 0x55}
 WM_COMMAND = 0x0111
+WM_SETTEXT = 0x000C
+WM_KEYDOWN = 0x0100
+WM_CLOSE = 0x0010
+WM_APP_SHOW = 0x8000 + 9
+GWL_EXSTYLE = -20
+WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_EX_NOACTIVATE = 0x8, 0x20, 0x08000000
+EM_GETLINECOUNT = 0x00BA
+EM_GETFIRSTVISIBLELINE = 0x00CE
+VK_RETURN = 0x0D
 IDM_EXIT = 105
 ID_RELOAD = 32771
+ID_PAUSE = 32783
+CF_UNICODETEXT = 13
 MOD_ALT, MOD_CONTROL = 1, 2
 
 TARGET = "MicroKeys Test Target"
 OTHER = "Other Target"
+LATER = "Opened Later"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -86,6 +98,27 @@ def type_keys(text):
 
 def find_window(title, cls=None):
     return user32.FindWindowW(cls, title)
+
+
+def set_clipboard(text):
+    # As another program would: MicroKeys doesn't own the clipboard after this
+    kernel32.GlobalAlloc.restype = ctypes.c_void_p
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+    user32.SetClipboardData.argtypes = [ctypes.c_uint, ctypes.c_void_p]
+    data = (text + "\0").encode("utf-16-le")
+    mem = kernel32.GlobalAlloc(2, len(data))
+    ctypes.memmove(kernel32.GlobalLock(mem), data, len(data))
+    kernel32.GlobalUnlock(mem)
+    for attempt in range(20):
+        if user32.OpenClipboard(None):
+            user32.EmptyClipboard()
+            user32.SetClipboardData(CF_UNICODETEXT, mem)
+            user32.CloseClipboard()
+            return
+        time.sleep(0.05)
+    raise Exception("Unable to open the clipboard")
 
 
 def focus(title):
@@ -192,6 +225,9 @@ class Run:
         self.proc = subprocess.Popen([self.exe, "--scripts", self.scripts, "--data", self.data], env=env)
         wait_for(lambda: "Loaded 2 scripts" in self.log_text(), 20, "MicroKeys to load the scripts")
 
+    def open_later(self):
+        self.targets.append(subprocess.Popen([sys.executable, os.path.join(HERE, "target.py"), LATER, os.path.join(self.work, "later.txt")]))
+
     def teardown(self):
         user32.UnregisterHotKey(None, 1)
         if self.proc and self.proc.poll() is None:
@@ -213,7 +249,7 @@ RECORD_HELPER = '''
 
 MAIN_SCRIPT = r'''
     import time
-    from microkeys import hotkey, hotstring, command, keys, clip, ui, windows, mouse
+    from microkeys import hotkey, hotstring, command, keys, clip, ui, windows, mouse, every, on_start, unbind
     from _record import record
 
     TARGET = windows.match(title="MicroKeys Test Target")
@@ -273,6 +309,68 @@ MAIN_SCRIPT = r'''
     @command("hello-cmd")
     def hello():
         record("t15", "ran")
+
+    @on_start
+    def t16():
+        record("t16", "started")
+
+    ticks = []
+
+    @every(0.4)
+    def t17():
+        ticks.append(time.monotonic())
+        record("t17", len(ticks))
+        if len(ticks) == 3:
+            unbind(t17)
+
+    @windows.on_activate(when=windows.match(title="Other Target"))
+    def t18(win):
+        record("t18", win.title)
+
+    @windows.on_open(when=windows.match(title="Opened Later"))
+    def t19(win):
+        record("t19", win.title)
+
+    @clip.on_change
+    def t21():
+        record("t21", clip.get())
+
+    @hotkey("ctrl+alt+j")
+    def t22():
+        clip.set("set by MicroKeys")
+        hotkey("ctrl+alt+k", lambda: record("t22", "bound by a macro"))
+        record("t22", "binding")
+
+    @hotkey("ctrl+alt+u")
+    def t23():
+        record("t23", unbind(hotkey="ctrl+alt+k"))
+
+    @command("many-lines")
+    def t25():
+        for i in range(300):
+            print("line", i)
+        record("t25", "printed")
+
+    @hotkey("ctrl+alt+b")
+    def t26():
+        ui.show("Working on it")
+        time.sleep(1.5)
+        keys.type("typed under the message")
+        ui.show("Done")
+        record("t26", "done")
+
+    @command("short-message")
+    def t27():
+        ui.show("Short", seconds=0.5)
+        time.sleep(2)
+        record("t27", "done")
+
+    @command("many-messages")
+    def t28():
+        for i in range(300):
+            ui.show(f"Step {i} of 300\n" + "word " * (i % 40))
+        ui.hide()
+        record("t28", "done")
 '''
 
 RELOAD_V1 = '''
@@ -405,8 +503,139 @@ def run_tests(r):
             raise Exception("MicroKeys was still running 8 seconds after Exit")
         assert "Internal error" not in r.log_text(), "stopping logged an internal error"
 
+    def t_on_start():
+        assert r.wait_record("t16") == "started"
+
+    def t_timer():
+        wait_for(lambda: len(r.records("t17")) >= 3, 5, "three timer runs")
+        time.sleep(1.2)
+        assert len(r.records("t17")) == 3, "the timer kept running after unbind()"
+
+    def t_on_activate():
+        focus(TARGET)
+        count = len(r.records("t18"))
+        focus(OTHER)
+        assert r.wait_record("t18", count + 1) == OTHER
+        focus(TARGET)
+        time.sleep(0.5)
+        assert len(r.records("t18")) == count + 1, "on_activate ran for another window"
+
+    def t_on_open():
+        r.open_later()
+        assert r.wait_record("t19") == LATER
+
+    def t_clipboard_event():
+        count = len(r.records("t21"))
+        set_clipboard("from another program")
+        wait_for(lambda: len(r.records("t21")) > count, 5, "the clipboard handler")
+        assert r.records("t21")[-1][1] == "from another program"
+
+    def t_runtime_binding():
+        count = len(r.records("t21"))
+        combo("ctrl", "alt", "j")
+        r.wait_record("t22")
+        time.sleep(0.5)
+        # MicroKeys' own clip.set() isn't a change worth reporting
+        assert all(v != "set by MicroKeys" for k, v in r.records("t21")[count:]), "clip.set() ran the clipboard handler"
+        combo("ctrl", "alt", "k")
+        assert r.wait_record("t22", 2) == "bound by a macro"
+        combo("ctrl", "alt", "u")
+        assert r.wait_record("t23") == 1
+        time.sleep(0.5)
+        combo("ctrl", "alt", "k")
+        time.sleep(1)
+        assert len(r.records("t22")) == 2, "the unbound hotkey still ran"
+
+    def t_pause():
+        main = r.main_window()
+        user32.PostMessageW(main, WM_COMMAND, ID_PAUSE, 0)
+        wait_for(lambda: "Paused:" in r.log_text(), 5, "pause")
+        count = len(r.records("t21"))
+        set_clipboard("while paused")
+        time.sleep(1.5)
+        assert len(r.records("t21")) == count, "the clipboard handler ran while paused"
+        user32.PostMessageW(main, WM_COMMAND, ID_PAUSE, 0)
+        wait_for(lambda: "Resumed" in r.log_text(), 5, "resume")
+        set_clipboard("after the pause")
+        wait_for(lambda: len(r.records("t21")) > count, 5, "the clipboard handler after resuming")
+
+    def t_console():
+        edit = user32.FindWindowExW(r.main_window(), None, "Edit", None)
+        assert edit, "no console input in the log window"
+        user32.SendMessageW(edit, WM_SETTEXT, 0, "import _record; _record.record('t20', 6 * 7)")
+        user32.PostMessageW(edit, WM_KEYDOWN, VK_RETURN, 0)
+        assert r.wait_record("t20") == 42
+        assert ">>> import _record" in r.log_text()
+
+    def t_log_follows():
+        # The log window keeps the newest lines in view
+        main = r.main_window()
+        user32.PostMessageW(main, WM_APP_SHOW, 0, 0)
+        wait_for(lambda: user32.IsWindowVisible(main), 5, "the log window")
+        log = user32.FindWindowExW(main, None, "RICHEDIT50W", None)
+        assert log, "no log in the log window"
+        subprocess.run([r.exe, "run", "many-lines"], timeout=10)
+        r.wait_record("t25")
+        time.sleep(1)
+        lines = user32.SendMessageW(log, EM_GETLINECOUNT, 0, 0)
+        first = user32.SendMessageW(log, EM_GETFIRSTVISIBLELINE, 0, 0)
+        user32.PostMessageW(main, WM_CLOSE, 0, 0)
+        assert lines > 300 and first > lines - 80, f"showing line {first} of {lines}"
+
+    def overlay():
+        hwnd = find_window(None, "MicroKeysOverlay")
+        return hwnd if hwnd and user32.IsWindowVisible(hwnd) else None
+
+    def t_message():
+        target = focus(TARGET)
+        r.clear_target()
+        combo("ctrl", "alt", "b")
+        wait_for(overlay, 3, "the message")
+        hwnd = overlay()
+        assert user32.GetForegroundWindow() == target, "the message took the focus"
+        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        want = WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE
+        assert style & want == want, f"extended style {style:#x}"
+        rect = wt.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+        middle = wt.POINT((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2)
+        assert user32.WindowFromPoint(middle) != hwnd, "clicks on the message would stop there"
+        r.wait_record("t26")
+        done = time.time()
+        wait_for(lambda: r.target_text() == "typed under the message", 5, f"typed text, have {r.target_text()!r}")
+        wait_for(lambda: not overlay(), 5, "the message to go")
+        assert time.time() - done > 1.5, "the message went as soon as the macro finished"
+
+    def t_message_seconds():
+        subprocess.run([r.exe, "run", "short-message"], timeout=10)
+        wait_for(overlay, 3, "the message")
+        wait_for(lambda: not overlay(), 3, "the message to go")
+        assert not r.records("t27"), "the message stayed up until the macro finished"
+        r.wait_record("t27")
+
+    def t_message_updates():
+        # Changing the text while it's up doesn't leak GDI objects
+        kernel32.OpenProcess.restype = wt.HANDLE
+        kernel32.CloseHandle.argtypes = [wt.HANDLE]
+        user32.GetGuiResources.argtypes = [wt.HANDLE, wt.DWORD]
+        process = kernel32.OpenProcess(0x1000, False, r.proc.pid)
+        try:
+            subprocess.run([r.exe, "run", "many-messages"], timeout=10)
+            r.wait_record("t28")
+            time.sleep(0.5)
+            before = user32.GetGuiResources(process, 0)
+            subprocess.run([r.exe, "run", "many-messages"], timeout=10)
+            r.wait_record("t28", 2)
+            time.sleep(0.5)
+            grew = user32.GetGuiResources(process, 0) - before
+        finally:
+            kernel32.CloseHandle(process)
+        assert grew <= 2, f"GDI objects grew by {grew}"
+
     for name, func in [
         ("hotkey taken by another program is reported", t_conflict),
+        ("on_start", t_on_start),
+        ("timer runs and stops", t_timer),
         ("hotkey types Unicode text", t_type_unicode),
         ("key combinations", t_press),
         ("immediate hotstring", t_hotstring),
@@ -419,6 +648,16 @@ def run_tests(r):
         ("reload after a rename-style save", t_reload_rename_save),
         ("reload during a macro", t_reload_during_macro),
         ("run a command from another process", t_command_forwarding),
+        ("on_activate", t_on_activate),
+        ("on_open", t_on_open),
+        ("clipboard event", t_clipboard_event),
+        ("hotkey bound and unbound by a macro", t_runtime_binding),
+        ("pause stops events", t_pause),
+        ("console", t_console),
+        ("log window follows new lines", t_log_follows),
+        ("message on screen", t_message),
+        ("message for a set time", t_message_seconds),
+        ("message updates don't leak", t_message_updates),
         ("exit during a macro", t_exit_during_macro),
     ]:
         r.check(name, func)

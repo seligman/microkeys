@@ -2,14 +2,24 @@
 #include "WinKeys.h"
 #include "WinText.h"
 #include "WinUpdate.h"
+#include "WinOverlay.h"
 #include "Resource.h"
 #include "../../core/Text.h"
 #include "../../core/UpdateCore.h"
 #include <dwmapi.h>
 #include <shlwapi.h>
+#include <richedit.h>
+#include <regex>
 
 #define LOG_FILE_MAX		(1024 * 1024)
 #define LOG_WINDOW_MAX		(512 * 1024)
+#define LOG_ERROR_COLOR		RGB(192, 0, 0)
+#define LOG_CONSOLE_COLOR	RGB(0, 90, 170)
+
+// What a file name and line look like in the log: a traceback's
+// File "C:\...\main.py", line 12, or the main.py:12 of binding messages
+static const wregex _tracebackLink(LR"re(File "([^"<][^"]*)", line (\d+))re");
+static const wregex _shortLink(LR"re(([\w.\-]+\.py):(\d+))re");
 
 WinApp* _app = nullptr;
 HANDLE _instanceMutex = NULL;
@@ -46,6 +56,26 @@ static void CALLBACK WinEventProc(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LO
 	if (_app != nullptr) {
 		_app->OnWinEvent(event, hwnd, idObject, idChild);
 	}
+}
+
+static LRESULT CALLBACK InputProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam, UINT_PTR id, DWORD_PTR data) {
+	// The console's input line: Enter, Up, Down and Escape are ours, and Tab
+	// indents rather than beeping
+	if (message == WM_KEYDOWN && ((WinApp*)data)->OnConsoleKey((UINT)wParam)) {
+		return 0;
+	}
+	if (message == WM_CHAR && (wParam == '\r' || wParam == '\t' || wParam == VK_ESCAPE)) {
+		if (wParam == '\t') {
+			SendMessageW(hWnd, EM_REPLACESEL, TRUE, (LPARAM)L"    ");
+		}
+		return 0;
+	}
+	return DefSubclassProc(hWnd, message, wParam, lParam);
+}
+
+static BOOL CALLBACK CollectWindow(HWND hwnd, LPARAM lParam) {
+	((set<HWND>*)lParam)->insert(hwnd);
+	return TRUE;
 }
 
 string KnownFolder(REFKNOWNFOLDERID id) {
@@ -113,6 +143,7 @@ bool WinApp::Init(HINSTANCE hInstance, const AppOptions& options) {
 	_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
 	_triggers = make_unique<Triggers>(this);
 	_updater = make_unique<Updater>(this);
+	_overlay = make_unique<Overlay>(hInstance);
 
 	CreateMainWindow();
 	if (_hWnd == NULL) {
@@ -120,6 +151,10 @@ bool WinApp::Init(HINSTANCE hInstance, const AppOptions& options) {
 	}
 	_platform.ClipboardOwner = _hWnd;
 	_platform.OnToast = [this](const string& title, const string& text) { ShowToast(title, text); };
+	_platform.OnOverlay = [this](const string& text, int timeoutMs) { ShowOverlay(text, timeoutMs); };
+	if (!_options.Headless) {
+		_clipboardListener = AddClipboardFormatListener(_hWnd) != FALSE;
+	}
 
 	_foreground = DescribeWindow(GetForegroundWindow());
 	_foregroundLayout = GetKeyboardLayout(GetWindowThreadProcessId(GetForegroundWindow(), NULL));
@@ -146,8 +181,12 @@ void WinApp::StartHost() {
 	startup.DataDir = _dataDir;
 	startup.DocumentsDir = _docsDir;
 	startup.ScriptDir = _options.ScriptDir;
+	startup.LocalDir = _localDir;
 	startup.PythonZip = _appDir + "\\" MK_PYLIB ".zip";
 	startup.Headless = _options.Headless;
+#ifdef MK_NO_UPDATES
+	startup.Updates = false;
+#endif
 	_host = make_unique<ScriptHost>(this, &_platform);
 	_host->Start(startup);
 	for (auto& cmd : _options.Commands) {
@@ -188,10 +227,21 @@ void WinApp::CreateMainWindow() {
 	UINT dpi = GetDpiForWindow(_hWnd);
 	SetWindowPos(_hWnd, NULL, 0, 0, MulDiv(760, dpi, 96), MulDiv(480, dpi, 96), SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 
-	_hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"Edit", L"",
-		WS_CHILD | WS_VISIBLE | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | WS_VSCROLL | WS_HSCROLL,
+	// A rich edit, for coloured errors and file names that can be clicked,
+	// with a Python prompt below it
+	LoadLibraryW(L"Msftedit.dll");
+	_hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, MSFTEDIT_CLASS, L"",
+		WS_CHILD | WS_VISIBLE | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_NOHIDESEL | WS_VSCROLL | WS_HSCROLL,
 		0, 0, 100, 100, _hWnd, NULL, _hInst, NULL);
-	SendMessageW(_hEdit, EM_LIMITTEXT, 0x7FFFFFFE, 0);
+	SendMessageW(_hEdit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
+	SendMessageW(_hEdit, EM_SETTARGETDEVICE, 0, 1);
+	SendMessageW(_hEdit, EM_SETEVENTMASK, 0, ENM_LINK);
+	_hPrompt = CreateWindowExW(0, L"Static", L">>>", WS_CHILD | WS_VISIBLE | SS_CENTER | SS_CENTERIMAGE | SS_NOPREFIX,
+		0, 0, 10, 10, _hWnd, NULL, _hInst, NULL);
+	_hInput = CreateWindowExW(WS_EX_CLIENTEDGE, L"Edit", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+		0, 0, 10, 10, _hWnd, NULL, _hInst, NULL);
+	SetWindowSubclass(_hInput, InputProc, 1, (DWORD_PTR)this);
+	SendMessageW(_hInput, EM_SETCUEBANNER, TRUE, (LPARAM)L"Python: an expression or statement to run, then Enter");
 	ApplyFont();
 	Layout();
 }
@@ -202,6 +252,8 @@ void WinApp::ApplyFont() {
 	HFONT font = CreateFontW(-MulDiv(10, dpi, 72), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
 		OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
 	SendMessageW(_hEdit, WM_SETFONT, (WPARAM)font, TRUE);
+	SendMessageW(_hPrompt, WM_SETFONT, (WPARAM)font, TRUE);
+	SendMessageW(_hInput, WM_SETFONT, (WPARAM)font, TRUE);
 	if (_font != NULL) {
 		DeleteObject(_font);
 	}
@@ -209,9 +261,17 @@ void WinApp::ApplyFont() {
 }
 
 void WinApp::Layout() {
+	// The log fills the window above the one-line prompt
 	RECT rt;
 	GetClientRect(_hWnd, &rt);
-	MoveWindow(_hEdit, 0, 0, rt.right - rt.left, rt.bottom - rt.top, TRUE);
+	UINT dpi = GetDpiForWindow(_hWnd);
+	int width = rt.right - rt.left;
+	int height = rt.bottom - rt.top;
+	int line = MulDiv(24, dpi, 96);
+	int prompt = MulDiv(36, dpi, 96);
+	MoveWindow(_hEdit, 0, 0, width, max(height - line, 0), TRUE);
+	MoveWindow(_hPrompt, 0, height - line, prompt, line, TRUE);
+	MoveWindow(_hInput, prompt, height - line, max(width - prompt, 0), line, TRUE);
 }
 
 void WinApp::AddTrayIcon() {
@@ -253,6 +313,14 @@ void WinApp::ShowToast(const string& title, const string& text) {
 	// Any thread.  A tray balloon, which Windows 10 and 11 show as a toast.
 	auto payload = new pair<string, string>(title, text);
 	if (_hWnd == NULL || !PostMessageW(_hWnd, WM_APP_TOAST, 0, (LPARAM)payload)) {
+		delete payload;
+	}
+}
+
+void WinApp::ShowOverlay(const string& text, int timeoutMs) {
+	// Any thread
+	auto payload = new pair<string, int>(text, timeoutMs);
+	if (_hWnd == NULL || !PostMessageW(_hWnd, WM_APP_OVERLAY, 0, (LPARAM)payload)) {
 		delete payload;
 	}
 }
@@ -414,15 +482,214 @@ void WinApp::AppendLogText() {
 	if (text.empty() || _hEdit == NULL) {
 		return;
 	}
-	int len = GetWindowTextLengthW(_hEdit);
+	// Follow new lines only while the last line is in view, so reading or
+	// selecting further up isn't disturbed
+	GETTEXTLENGTHEX count = { GTL_NUMCHARS | GTL_PRECISE, 1200 };
+	LONG len = (LONG)SendMessageW(_hEdit, EM_GETTEXTLENGTHEX, (WPARAM)&count, 0);
+	bool following = true;
+	if (len > 0) {
+		POINTL last = { 0, 0 };
+		RECT view;
+		SendMessageW(_hEdit, EM_POSFROMCHAR, (WPARAM)&last, len - 1);
+		GetClientRect(_hEdit, &view);
+		following = last.y < view.bottom;
+	}
+	POINT scroll = { 0, 0 };
+	SendMessageW(_hEdit, EM_GETSCROLLPOS, 0, (LPARAM)&scroll);
+	CHARRANGE selection;
+	SendMessageW(_hEdit, EM_EXGETSEL, 0, (LPARAM)&selection);
+	SendMessageW(_hEdit, WM_SETREDRAW, FALSE, 0);
+	bool atEnd = selection.cpMin >= len;
 	if (len > LOG_WINDOW_MAX) {
 		// Drop the older half, on a line boundary
-		SendMessageW(_hEdit, EM_SETSEL, 0, SendMessageW(_hEdit, EM_LINEINDEX, SendMessageW(_hEdit, EM_LINEFROMCHAR, len / 2, 0), 0));
+		LONG line = (LONG)SendMessageW(_hEdit, EM_EXLINEFROMCHAR, 0, len / 2);
+		CHARRANGE older = { 0, (LONG)SendMessageW(_hEdit, EM_LINEINDEX, line, 0) };
+		SendMessageW(_hEdit, EM_EXSETSEL, 0, (LPARAM)&older);
 		SendMessageW(_hEdit, EM_REPLACESEL, FALSE, (LPARAM)L"");
-		len = GetWindowTextLengthW(_hEdit);
+		selection.cpMin = max(selection.cpMin - older.cpMax, 0L);
+		selection.cpMax = max(selection.cpMax - older.cpMax, 0L);
+		following = true;
 	}
-	SendMessageW(_hEdit, EM_SETSEL, len, len);
-	SendMessageW(_hEdit, EM_REPLACESEL, FALSE, (LPARAM)Utf8ToUtf16(text).c_str());
+	CHARRANGE end = { -1, -1 };
+	SendMessageW(_hEdit, EM_EXSETSEL, 0, (LPARAM)&end);
+	SendMessageW(_hEdit, EM_EXGETSEL, 0, (LPARAM)&end);
+	CHARFORMAT2W plain = { sizeof(plain) };
+	plain.dwMask = CFM_COLOR | CFM_LINK;
+	plain.dwEffects = CFE_AUTOCOLOR;
+	SendMessageW(_hEdit, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&plain);
+	wstring wide = Utf8ToUtf16(text);
+	SendMessageW(_hEdit, EM_REPLACESEL, FALSE, (LPARAM)wide.c_str());
+	FormatLogText(end.cpMin, wide);
+
+	if (atEnd) {
+		selection.cpMin = selection.cpMax = -1;
+	}
+	SendMessageW(_hEdit, EM_EXSETSEL, 0, (LPARAM)&selection);
+	if (!following) {
+		SendMessageW(_hEdit, EM_SETSCROLLPOS, 0, (LPARAM)&scroll);
+	}
+	SendMessageW(_hEdit, WM_SETREDRAW, TRUE, 0);
+	if (following) {
+		// EM_SCROLLCARET does nothing while the log doesn't have the focus
+		SendMessageW(_hEdit, WM_VSCROLL, SB_BOTTOM, 0);
+	}
+	InvalidateRect(_hEdit, NULL, TRUE);
+}
+
+void WinApp::FormatLogText(LONG start, const wstring& text) {
+	// Colour errors and console input, and make file names links.  The rich
+	// edit keeps each line break as one character, where the text has two.
+	auto apply = [this](LONG from, LONG to, DWORD mask, DWORD effects, COLORREF color) {
+		CHARRANGE range = { from, to };
+		CHARFORMAT2W cf = { sizeof(cf) };
+		cf.dwMask = mask;
+		cf.dwEffects = effects;
+		cf.crTextColor = color;
+		SendMessageW(_hEdit, EM_EXSETSEL, 0, (LPARAM)&range);
+		SendMessageW(_hEdit, EM_SETCHARFORMAT, SCF_SELECTION, (LPARAM)&cf);
+	};
+	LONG pos = start;
+	size_t cur = 0;
+	while (cur < text.size()) {
+		size_t next = text.find(L"\r\n", cur);
+		wstring line = text.substr(cur, next == wstring::npos ? wstring::npos : next - cur);
+		// Lines start with "HH:MM:SS ", then "! " for an error; an entry's
+		// later lines start with spaces and look like its first
+		bool stamped = line.size() > 9 && line[2] == L':' && line[5] == L':';
+		if (stamped) {
+			_logInError = line.compare(9, 2, L"! ") == 0;
+		}
+		if (_logInError) {
+			apply(pos, pos + (LONG)line.size(), CFM_COLOR, 0, LOG_ERROR_COLOR);
+		}
+		else if (stamped && (line.compare(9, 4, L">>> ") == 0 || line.compare(9, 4, L"... ") == 0)) {
+			apply(pos, pos + (LONG)line.size(), CFM_COLOR, 0, LOG_CONSOLE_COLOR);
+		}
+		for (auto* pattern : { &_tracebackLink, &_shortLink }) {
+			for (wsregex_iterator it(line.begin(), line.end(), *pattern), done; it != done; ++it) {
+				LONG from = pos + (LONG)it->position(0);
+				apply(from, from + (LONG)it->length(0), CFM_LINK, CFE_LINK, 0);
+			}
+		}
+		pos += (LONG)line.size() + 1;
+		if (next == wstring::npos) {
+			break;
+		}
+		cur = next + 2;
+	}
+}
+
+static void ReplaceAll(wstring& text, const wstring& from, const wstring& to) {
+	for (size_t pos = text.find(from); pos != wstring::npos; pos = text.find(from, pos + to.size())) {
+		text.replace(pos, from.size(), to);
+	}
+}
+
+static wstring FirstFile(const vector<wstring>& candidates) {
+	for (auto& cur : candidates) {
+		if (GetFileAttributesW(cur.c_str()) != INVALID_FILE_ATTRIBUTES) {
+			return cur;
+		}
+	}
+	return L"";
+}
+
+void WinApp::OpenLink(const wstring& text) {
+	// A file name clicked in the log; short names are in the script folder
+	wsmatch m;
+	if (!regex_search(text, m, _tracebackLink) && !regex_search(text, m, _shortLink)) {
+		return;
+	}
+	string file = Utf16ToUtf8(m[1].str());
+	if (PathIsRelativeW(m[1].str().c_str())) {
+		file = _config.ScriptDir + "\\" + file;
+	}
+	OpenAt(file, _wtoi(m[2].str().c_str()));
+}
+
+void WinApp::OpenAt(const string& file, int line) {
+	// Open a file at a line: with the editor setting if there is one, else
+	// VS Code or Notepad++ if one is installed, else Notepad, which can't go
+	// to a line
+	wstring path = Utf8ToUtf16(file);
+	wstring number = to_wstring(line);
+	wstring cmd;
+	if (!_config.Editor.empty()) {
+		cmd = Utf8ToUtf16(_config.Editor);
+		if (cmd.find(L"{file}") == wstring::npos) {
+			cmd += L" {file}";
+		}
+		ReplaceAll(cmd, L"\"{file}\"", L"{file}");
+		ReplaceAll(cmd, L"{file}", L"\"" + path + L"\"");
+		ReplaceAll(cmd, L"{line}", number);
+	}
+	else {
+		wstring local = Utf8ToUtf16(KnownFolder(FOLDERID_LocalAppData));
+		wstring programs = Utf8ToUtf16(KnownFolder(FOLDERID_ProgramFiles));
+		wstring code = FirstFile({ local + L"\\Programs\\Microsoft VS Code\\Code.exe", programs + L"\\Microsoft VS Code\\Code.exe" });
+		wstring npp = FirstFile({ programs + L"\\Notepad++\\notepad++.exe" });
+		if (!code.empty()) {
+			cmd = L"\"" + code + L"\" --goto \"" + path + L":" + number + L"\"";
+		}
+		else if (!npp.empty()) {
+			cmd = L"\"" + npp + L"\" -n" + number + L" \"" + path + L"\"";
+		}
+		else {
+			cmd = L"notepad.exe \"" + path + L"\"";
+		}
+	}
+	STARTUPINFOW si = { sizeof(si) };
+	PROCESS_INFORMATION pi = { 0 };
+	if (CreateProcessW(NULL, &cmd[0], NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+		AllowSetForegroundWindow(pi.dwProcessId);
+		CloseHandle(pi.hThread);
+		CloseHandle(pi.hProcess);
+	}
+	else {
+		Log(LOG_ERROR, "Unable to start the editor with " + Utf16ToUtf8(cmd) + ": " + LastErrorText());
+	}
+}
+
+bool WinApp::OnConsoleKey(UINT vk) {
+	// Enter runs the line, Up and Down step through earlier ones, Escape clears it
+	if (vk == VK_RETURN) {
+		int len = GetWindowTextLengthW(_hInput);
+		vector<wchar_t> buffer((size_t)len + 1);
+		GetWindowTextW(_hInput, buffer.data(), len + 1);
+		wstring line(buffer.data());
+		SetWindowTextW(_hInput, L"");
+		if (!line.empty() && (_consoleHistory.empty() || _consoleHistory.back() != line)) {
+			_consoleHistory.push_back(line);
+		}
+		_historyPos = _consoleHistory.size();
+		_host->PostConsole(Utf16ToUtf8(line));
+		return true;
+	}
+	if (vk == VK_UP || vk == VK_DOWN) {
+		if (_consoleHistory.empty()) {
+			return true;
+		}
+		if (vk == VK_UP && _historyPos > 0) {
+			_historyPos--;
+		}
+		else if (vk == VK_DOWN && _historyPos < _consoleHistory.size()) {
+			_historyPos++;
+		}
+		SetWindowTextW(_hInput, _historyPos < _consoleHistory.size() ? _consoleHistory[_historyPos].c_str() : L"");
+		int len = GetWindowTextLengthW(_hInput);
+		SendMessageW(_hInput, EM_SETSEL, len, len);
+		return true;
+	}
+	if (vk == VK_ESCAPE) {
+		SetWindowTextW(_hInput, L"");
+		_historyPos = _consoleHistory.size();
+		return true;
+	}
+	return false;
+}
+
+void WinApp::ConsoleState(bool more) {
+	PostMessageW(_hWnd, WM_APP_CONSOLE, more ? 1 : 0, 0);
 }
 
 void WinApp::SetBindings(const Bindings& bindings) {
@@ -547,15 +814,74 @@ void WinApp::UpdateHooks() {
 		UnhookWinEvent(_titleHook);
 		_titleHook = NULL;
 	}
+
+	// Windows appearing, for windows.on_open.  The ones already on screen
+	// when the watching starts aren't new.
+	bool wantOpen = _triggers->WantsWindowEvent(WINDOW_OPEN) && !_options.Headless && !_suspended;
+	if (wantOpen && _showHook == NULL) {
+		_knownWindows.clear();
+		EnumWindows(CollectWindow, (LPARAM)&_knownWindows);
+		_showHook = SetWinEventHook(EVENT_OBJECT_DESTROY, EVENT_OBJECT_SHOW, NULL, WinEventProc, 0, 0,
+			WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+		_uncloakHook = SetWinEventHook(EVENT_OBJECT_UNCLOAKED, EVENT_OBJECT_UNCLOAKED, NULL, WinEventProc, 0, 0,
+			WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+	}
+	else if (!wantOpen && _showHook != NULL) {
+		UnhookWinEvent(_showHook);
+		_showHook = NULL;
+		if (_uncloakHook != NULL) {
+			UnhookWinEvent(_uncloakHook);
+			_uncloakHook = NULL;
+		}
+		_knownWindows.clear();
+	}
 }
 
 void WinApp::OnWinEvent(DWORD event, HWND hwnd, LONG idObject, LONG idChild) {
 	if (event == EVENT_SYSTEM_FOREGROUND) {
 		RefreshForeground(true);
+		return;
 	}
-	else if (event == EVENT_OBJECT_NAMECHANGE && idObject == OBJID_WINDOW && idChild == CHILDID_SELF && hwnd == GetForegroundWindow()) {
-		RefreshForeground(false);
+	if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF) {
+		return;
 	}
+	uint64_t handle = (uint64_t)(uintptr_t)hwnd;
+	if (event == EVENT_OBJECT_NAMECHANGE) {
+		if (hwnd == GetForegroundWindow()) {
+			RefreshForeground(false);
+		}
+		if (_triggers->IsPendingWindow(handle)) {
+			_triggers->OnWindowTitle(DescribeWindow(hwnd), GetTickCount64());
+		}
+	}
+	else if (event == EVENT_OBJECT_SHOW || event == EVENT_OBJECT_UNCLOAKED) {
+		OnWindowShown(hwnd);
+	}
+	else if (event == EVENT_OBJECT_DESTROY && _knownWindows.erase(hwnd) > 0) {
+		_triggers->OnWindowClosed(handle);
+	}
+}
+
+void WinApp::OnWindowShown(HWND hwnd) {
+	// A window a person would call new: top level, able to take the focus,
+	// not a menu or a tooltip, not hidden on another desktop, not seen before
+	if (_knownWindows.count(hwnd) > 0 || GetAncestor(hwnd, GA_ROOT) != hwnd || !IsWindowVisible(hwnd)) {
+		return;
+	}
+	LONG style = GetWindowLongW(hwnd, GWL_STYLE);
+	LONG exStyle = GetWindowLongW(hwnd, GWL_EXSTYLE);
+	if (((exStyle & WS_EX_TOOLWINDOW) && !(exStyle & WS_EX_APPWINDOW)) || (exStyle & WS_EX_NOACTIVATE)) {
+		return;
+	}
+	if (GetWindow(hwnd, GW_OWNER) != NULL && (style & WS_CAPTION) != WS_CAPTION) {
+		return;
+	}
+	DWORD cloaked = 0;
+	if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked != 0) {
+		return;
+	}
+	_knownWindows.insert(hwnd);
+	_triggers->OnWindowOpened(DescribeWindow(hwnd), GetTickCount64());
 }
 
 void WinApp::RefreshForeground(bool newWindow) {
@@ -566,6 +892,10 @@ void WinApp::RefreshForeground(bool newWindow) {
 	_foregroundLayout = GetKeyboardLayout(GetWindowThreadProcessId(hwnd, NULL));
 	if (newWindow) {
 		_triggers->OnForeground(_foreground);
+		// MicroKeys' own windows, its dialogs say, aren't what scripts mean
+		if (_foreground.Pid != GetCurrentProcessId()) {
+			_triggers->OnActivated(_foreground);
+		}
 	}
 	else {
 		_triggers->OnTitleChange(_foreground);
@@ -784,9 +1114,11 @@ void WinApp::ShowLog() {
 	ShowWindow(_hWnd, IsIconic(_hWnd) ? SW_RESTORE : SW_SHOW);
 	SetForegroundWindow(_hWnd);
 	AppendLogText();
-	int len = GetWindowTextLengthW(_hEdit);
-	SendMessageW(_hEdit, EM_SETSEL, len, len);
-	SendMessageW(_hEdit, EM_SCROLLCARET, 0, 0);
+	CHARRANGE end = { -1, -1 };
+	SendMessageW(_hEdit, EM_EXSETSEL, 0, (LPARAM)&end);
+	SendMessageW(_hEdit, WM_VSCROLL, SB_BOTTOM, 0);
+	SendMessageW(_hEdit, WM_HSCROLL, SB_LEFT, 0);
+	SetFocus(_hInput);
 }
 
 void WinApp::ShowTrayMenu(int x, int y) {
@@ -794,11 +1126,12 @@ void WinApp::ShowTrayMenu(int x, int y) {
 	AppendMenuW(menu, MF_STRING, ID_SHOWLOG, L"&Show log");
 	AppendMenuW(menu, MF_STRING, ID_EDITSCRIPTS, L"&Open script folder");
 	AppendMenuW(menu, MF_STRING, ID_FILE_RELOADPYTHON, L"&Reload scripts");
-	AppendMenuW(menu, MF_STRING | (_triggers->IsPaused() ? MF_CHECKED : 0), ID_PAUSE, L"&Pause hotkeys");
+	AppendMenuW(menu, MF_STRING | (_triggers->IsPaused() ? MF_CHECKED : 0), ID_PAUSE, L"&Pause");
 	AppendMenuW(menu, MF_STRING | (_host->IsBusy() ? 0 : MF_GRAYED), ID_STOPMACRO, L"S&top running macro");
 	AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
 	AppendMenuW(menu, MF_STRING | (RunAtLogin() ? MF_CHECKED : 0), ID_RUNATLOGIN, L"Start with &Windows");
 	AppendMenuW(menu, MF_STRING, ID_OPENSETTINGS, L"Edit se&ttings");
+	AppendMenuW(menu, MF_STRING, ID_INSTALLPACKAGES, L"Install Python pac&kages...");
 	if (_updater->HasFeed()) {
 		AppendMenuW(menu, MF_STRING, ID_CHECKUPDATES, L"Check for &updates");
 	}
@@ -861,8 +1194,12 @@ void WinApp::OnCommand(int id) {
 		break;
 	case ID_PAUSE:
 		_triggers->SetPaused(!_triggers->IsPaused(), _foreground);
-		Log(LOG_INFO, _triggers->IsPaused() ? "Hotkeys and hotstrings paused" : "Hotkeys and hotstrings resumed");
+		_host->Paused = _triggers->IsPaused();
+		Log(LOG_INFO, _triggers->IsPaused() ? "Paused: hotkeys, hotstrings, timers, and events are off" : "Resumed");
 		UpdateTray();
+		break;
+	case ID_INSTALLPACKAGES:
+		_host->PostAction("install-packages");
 		break;
 	case ID_STOPMACRO:
 		Abort();
@@ -904,6 +1241,10 @@ bool WinApp::Suspend() {
 		_instanceMutex = NULL;
 	}
 	StopWatcher();
+	if (_clipboardListener) {
+		RemoveClipboardFormatListener(_hWnd);
+		_clipboardListener = false;
+	}
 	bool stopped = _host->Stop(5000);
 	_triggers->Clear();
 	UnregisterHotKey(_hWnd, ABORT_HOTKEY_ID);
@@ -935,6 +1276,10 @@ void WinApp::ExitApp() {
 	// Stop the scripts (a stuck macro gets a few seconds), then go
 	_exiting = true;
 	StopWatcher();
+	if (_clipboardListener) {
+		RemoveClipboardFormatListener(_hWnd);
+		_clipboardListener = false;
+	}
 	bool stopped = _host->Stop(3000);
 	_triggers->Clear();
 	UnregisterHotKey(_hWnd, ABORT_HOTKEY_ID);
@@ -1048,6 +1393,12 @@ LRESULT WinApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 		return 0;
 	}
 
+	case WM_APP_OVERLAY: {
+		unique_ptr<pair<string, int>> overlay((pair<string, int>*)lParam);
+		_overlay->Show(Utf8ToUtf16(overlay->first), overlay->second);
+		return 0;
+	}
+
 	case WM_APP_TRAY:
 		switch (LOWORD(lParam)) {
 		case WM_CONTEXTMENU:
@@ -1073,6 +1424,41 @@ LRESULT WinApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 
 	case WM_APP_UPDATE:
 		_updater->OnMessage(wParam, lParam);
+		return 0;
+
+	case WM_APP_CONSOLE:
+		SetWindowTextW(_hPrompt, wParam != 0 ? L"..." : L">>>");
+		return 0;
+
+	case WM_CLIPBOARDUPDATE:
+		// What MicroKeys puts there itself doesn't count
+		if (!_suspended && GetClipboardOwner() != _hWnd) {
+			_host->PostFire(FIRE_CLIPBOARD, 0, "");
+		}
+		return 0;
+
+	case WM_NOTIFY: {
+		ENLINK* link = (ENLINK*)lParam;
+		if (link->nmhdr.hwndFrom == _hEdit && link->nmhdr.code == EN_LINK && link->msg == WM_LBUTTONUP) {
+			vector<wchar_t> buffer((size_t)(link->chrg.cpMax - link->chrg.cpMin) + 1);
+			TEXTRANGEW range = { link->chrg, buffer.data() };
+			SendMessageW(_hEdit, EM_GETTEXTRANGE, 0, (LPARAM)&range);
+			OpenLink(buffer.data());
+			return 1;
+		}
+		break;
+	}
+
+	case WM_CTLCOLORSTATIC:
+		if ((HWND)lParam == _hPrompt) {
+			SetBkColor((HDC)wParam, GetSysColor(COLOR_WINDOW));
+			SetTextColor((HDC)wParam, LOG_CONSOLE_COLOR);
+			return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+		}
+		break;
+
+	case WM_SETFOCUS:
+		SetFocus(_hInput);
 		return 0;
 
 	case WM_APP_HEADLESS_DONE: {

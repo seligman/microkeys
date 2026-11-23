@@ -6,13 +6,15 @@
 * `wait_for` - wait for a window to appear
 * `monitors` - the monitors and their work areas
 * `app` / `match` - limit a hotkey or hotstring to some windows with `when=`
+* `on_activate` / `on_open` - run a function when a window comes to the front or appears
 * `Window` - one window: move it, resize it, bring it forward, close it
 """
 
 import re
 
-from ._native import native
+from ._native import native, WINDOW_ACTIVATE, WINDOW_OPEN
 from ._bindings import Match
+from . import _bindings
 
 
 def match(process=None, title=None, class_name=None):
@@ -238,3 +240,31 @@ def wait_for(title=None, process=None, class_name=None, timeout=10.0, active=Fal
 def monitors():
     """Every monitor, the main one first."""
     return [Monitor(i, info) for i, info in enumerate(native.monitors())]
+
+
+def on_activate(when=None, func=None):
+    """Run a function when a window comes to the front.
+
+        @windows.on_activate(when="notepad.exe")
+        def notepad_in_front(win):
+            log("Now in", win.title)
+
+    The function is given the `Window`.  Without `when` it runs for every
+    window; `when` works as for hotkey().  MicroKeys' own windows don't count.
+    """
+    return _bindings.window_event("on_activate", WINDOW_ACTIVATE, when, func)
+
+
+def on_open(when=None, func=None):
+    """Run a function when a new window appears.
+
+        @windows.on_open(when=windows.match(title="Save As"))
+        def save_dialog(win):
+            ...
+
+    The function is given the `Window`.  Without `when` it runs for every
+    new window; `when` works as for hotkey().  A window whose title is set
+    a moment after it appears still counts, if the title matches within
+    two seconds.
+    """
+    return _bindings.window_event("on_open", WINDOW_OPEN, when, func)

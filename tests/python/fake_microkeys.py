@@ -16,9 +16,16 @@ class FakeMicrokeys(types.ModuleType):
         self.platform_name = "windows"
         self.logs = []
         self.toasts = []
+        self.overlays = []
         self.sent = []
         self.clipboard = None
+        self.clip_other = {}
         self.clip_seq = 1
+        self.concealed = False
+        self.posts = []
+        self.is_paused = False
+        self.queue_full = False
+        self.console_more = []
         self.clip_changes_on_copy = True
         self.pointer = (10, 10)
         self.mouse_events = []
@@ -61,17 +68,29 @@ class FakeMicrokeys(types.ModuleType):
     def log(self, level, text):
         self.logs.append((level, text))
 
-    def configure(self, script_dir, abort_mods, abort_key, feed, check):
-        self.config = (script_dir, abort_mods, abort_key, feed, check)
+    def configure(self, script_dir, abort_mods, abort_key, feed, check, editor):
+        self.config = (script_dir, abort_mods, abort_key, feed, check, editor)
 
-    def set_bindings(self, hotkeys, hotstrings, commands):
-        self.bindings = (hotkeys, hotstrings, commands)
+    def set_bindings(self, hotkeys, hotstrings, commands, window_events):
+        self.bindings = (hotkeys, hotstrings, commands, window_events)
 
     def scripts_loaded(self, ok, summary):
         self.loaded.append((ok, summary))
 
     def macro_running(self, what):
         self.running = what
+
+    def console_state(self, more):
+        self.console_more.append(more)
+
+    def post(self, kind, id, extra):
+        if self.queue_full:
+            return False
+        self.posts.append((kind, id, extra))
+        return True
+
+    def paused(self):
+        return self.is_paused
 
     def cancelled(self):
         return False
@@ -124,11 +143,37 @@ class FakeMicrokeys(types.ModuleType):
 
     def clip_set(self, text):
         self.clipboard = text
+        self.clip_other = {}
         self.clip_seq += 1
         return True
 
     def clip_sequence(self):
         return self.clip_seq
+
+    def clip_kinds(self):
+        return (["text"] if self.clipboard is not None else []) + list(self.clip_other)
+
+    def clip_get_data(self, kind):
+        if kind == "text":
+            return None if self.clipboard is None else self.clipboard.encode("utf-8")
+        return self.clip_other.get(kind)
+
+    def clip_set_data(self, items):
+        items = dict(items)
+        text = items.pop("text", None)
+        self.clipboard = None if text is None else text.decode("utf-8")
+        self.clip_other = items
+        self.clip_seq += 1
+        return True
+
+    def clip_save(self):
+        return [(kind, self.clip_get_data(kind)) for kind in self.clip_kinds()]
+
+    def clip_restore(self, items):
+        return self.clip_set_data(items)
+
+    def clip_concealed(self):
+        return self.concealed
 
     # Windows
     def list_windows(self, include_hidden):
@@ -192,6 +237,9 @@ class FakeMicrokeys(types.ModuleType):
 
     def toast(self, title, text):
         self.toasts.append((title, text))
+
+    def overlay(self, text, timeout_ms):
+        self.overlays.append((text, timeout_ms))
 
     # System
     def shell_open(self, target):

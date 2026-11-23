@@ -65,11 +65,20 @@ public:
 	string Name;
 };
 
+class WindowEventBinding {
+	// A window coming to the front, or appearing
+public:
+	int ID = 0;
+	int Event = WINDOW_ACTIVATE;
+	WindowFilter When;
+};
+
 class Bindings {
 public:
 	vector<HotkeyBinding> Hotkeys;
 	vector<HotstringBinding> Hotstrings;
 	vector<CommandBinding> Commands;
+	vector<WindowEventBinding> WindowEvents;
 };
 
 class KeyAction {
@@ -80,6 +89,16 @@ public:
 	Kind Type = Char;
 	string Key;
 	char32_t Character = 0;
+};
+
+class ClipItem {
+	// One kind of clipboard data.  Kind is "text", "html" (the copied
+	// fragment), "rtf", "files" (paths joined with NUL), or "image" (PNG),
+	// all in UTF-8 where it's text.  A saved clipboard uses the platform's
+	// own format names instead.
+public:
+	string Kind;
+	string Data;
 };
 
 class IHotkeys {
@@ -112,6 +131,12 @@ public:
 	virtual bool GetClipboardText(string& text) = 0;
 	virtual bool SetClipboardText(const string& text) = 0;
 	virtual uint32_t ClipboardSequence() = 0;
+	virtual vector<string> ClipboardKinds() = 0;
+	virtual bool ReadClipboard(const string& kind, string& data) = 0;
+	virtual bool WriteClipboard(const vector<ClipItem>& items, string& error) = 0;
+	virtual bool SaveClipboard(vector<ClipItem>& items) = 0;
+	virtual bool RestoreClipboard(const vector<ClipItem>& items) = 0;
+	virtual bool ClipboardConcealed() = 0;
 
 	// Windows
 	virtual vector<WindowInfo> ListWindows(bool includeHidden) = 0;
@@ -131,6 +156,8 @@ public:
 	virtual bool AskText(const string& prompt, const string& title, const string& initial, string& result) = 0;
 	virtual int AskChoice(const vector<string>& items, const string& prompt, const string& title) = 0;
 	virtual void Toast(const string& title, const string& text) = 0;
+	// Empty text takes it down; a negative timeout leaves it up
+	virtual void ShowOverlay(const string& text, int timeoutMs) = 0;
 
 	// System
 	virtual bool ShellOpen(const string& target, string& error) = 0;
@@ -145,6 +172,7 @@ public:
 	string AbortKey;
 	string UpdateFeed;
 	bool CheckUpdates = true;
+	string Editor;
 };
 
 class IAppShell {
@@ -158,4 +186,5 @@ public:
 	virtual void Configure(const ShellConfig& config) = 0;
 	virtual void ScriptsLoaded(bool ok, const string& summary) = 0;
 	virtual void MacroState(const string& running) = 0;
+	virtual void ConsoleState(bool more) = 0;
 };

@@ -15,7 +15,8 @@ hotstring(";sig", "Best regards,\nSam")
 
 ## Installing
 
-Unzip the download into a folder you can write to, such as `%LOCALAPPDATA%\MicroKeys`, and run `MicroKeys.exe`.  MicroKeys updates itself in place, so avoid `Program Files`.
+Unzip the download into a folder you can write to, such as `%LOCALAPPDATA%\MicroKeys`, and run `MicroKeys.exe`.
+MicroKeys updates itself in place, so avoid `Program Files`. <!-- updates -->
 
 The download isn't code signed, so the first time Windows SmartScreen may say it "protected your PC".  Click **More info**, then **Run anyway**.
 
@@ -85,11 +86,131 @@ MicroKeys.exe run tidy-windows
 
 If MicroKeys is already running the command runs there; otherwise MicroKeys starts and then runs it.
 
+## Timers
+
+```python
+import datetime
+from microkeys import every, after, at, ui
+
+@every(minutes=30)
+def stretch():
+    ui.toast("Time to stretch")
+
+@at("17:30")
+def go_home():
+    ui.toast("Go home")
+
+after(10, lambda: ui.toast("Ten seconds since the scripts loaded"))
+at(datetime.datetime(2026, 12, 24, 15, 0), lambda: ui.msgbox("Holidays!"))
+```
+
+`every()` runs a function at a fixed interval, `after()` runs it once after a delay, and `at()` runs it at a time of day (every day), or once at a date and time.  Timers take their turn with hotkeys, so a timer never interrupts a running macro; it waits for it to finish.  A daily time that passes while the computer sleeps or MicroKeys is paused is skipped until the next day, and an `every()` run is skipped; a one-time timer waits and runs when MicroKeys is resumed.
+
+## Window events
+
+```python
+from microkeys import windows, keys
+
+@windows.on_activate(when="excel.exe")
+def excel_in_front(win):
+    ...
+
+@windows.on_open(when=windows.match(title="Save As"))
+def save_dialog(win):
+    keys.type("report.txt")
+```
+
+`windows.on_activate` runs when a window comes to the front, and `windows.on_open` when a new window appears.  The function is given the `Window`.  `when=` works as it does for hotkeys; without it the function runs for every window.
+
+## Starting up and reloading
+
+`@on_start` runs a function once, when MicroKeys starts and the scripts have loaded.  `@on_reload` runs one each time the scripts reload, but not at startup.
+
+```python
+from microkeys import on_start, run, windows
+
+@on_start
+def open_my_apps():
+    if not windows.find(process="outlook.exe"):
+        run("outlook.exe")
+```
+
+## Changing bindings from a macro
+
+A macro can call `hotkey()`, `hotstring()`, `every()` and the rest too.  What it binds takes effect when the macro finishes, wins over the scripts' own bindings for the same key (a hotkey without `when=` takes the key in every window), and lasts until the scripts next reload.  `unbind()` takes bindings away again, so a hotkey can switch on a set of keys and another can switch them off:
+
+```python
+from microkeys import hotkey, unbind, keys
+
+@hotkey("ctrl+alt+j")
+def arrow_keys_on():
+    hotkey("j", lambda: keys.press("down"))
+    hotkey("k", lambda: keys.press("up"))
+    hotkey("escape", arrow_keys_off)
+
+def arrow_keys_off():
+    for key in ("j", "k", "escape"):
+        unbind(hotkey=key)
+```
+
+`unbind(func)` removes everything that runs `func`; `unbind(hotkey=...)`, `unbind(hotstring=...)` and `unbind(command=...)` remove one binding by what triggers it.
+
+## The clipboard
+
+`clip.get()` and `clip.set()` handle text.  `clip.set()` also takes `html=`, `rtf=`, `files=` and `image=` (PNG data), together or on their own, and `clip.get_html()`, `clip.get_rtf()`, `clip.get_files()` and `clip.get_image()` read them back.  `clip.formats()` says what's there.
+
+```python
+from microkeys import hotkey, clip
+
+@hotkey("ctrl+alt+l")
+def paste_link():
+    url = clip.get()
+    clip.set(url, html=f'<a href="{url}">{url}</a>')
+```
+
+`clip.save()` keeps a copy of everything on the clipboard and `clip.restore()` puts it back; `paste_text()` uses them, so pasting text through the clipboard doesn't lose an image that was there.
+
+`@clip.on_change` runs a function when another program changes the clipboard, and `clip.history()` lists the text copied recently, newest first.  The history is kept in memory only, and leaves out what password managers mark as private.
+
+## Keeping data between runs
+
+`store` is a dict that MicroKeys saves after every macro and loads again when it starts.  It keeps anything JSON can: strings, numbers, `True`, `False`, `None`, and lists and dicts of those.
+
+```python
+from microkeys import hotkey, store, keys
+
+@hotkey("ctrl+alt+n")
+def next_ticket():
+    store["ticket"] = store.get("ticket", 1000) + 1
+    keys.type(f"TICKET-{store['ticket']}")
+```
+
+It's saved as `store.json` in `%APPDATA%\MicroKeys`.
+
+## Showing what a macro is doing
+
+`ui.show()` puts a short message near the bottom of the screen, above every other window.  It never takes the focus, so the keys a macro sends still reach the window they're meant for, and clicks go through it.
+
+```python
+from microkeys import hotkey, clip, ui, windows
+
+@hotkey("ctrl+alt+w")
+def copy_title():
+    clip.set(windows.active().title)
+    ui.show("Copied the window title")
+```
+
+A message stays up while the macro that showed it runs and for two seconds after it finishes, so a long macro can show how far it's got with a `ui.show()` at each step.  `ui.show(text, seconds=5)` keeps a message up for five seconds instead, even after the macro is done; `seconds=math.inf` keeps it up until `ui.hide()`.  Each `ui.show()` replaces the message before it.
+
+`ui.toast()` sends a notification instead, which stays in the notification center, and `ui.msgbox()` waits for an answer.
+
 ## Stopping a macro
 
 Press **Ctrl+Alt+Backspace** to stop the macro that's running, or use **Stop running macro** in the tray menu.  While a macro runs for more than a moment the tray icon shows an orange dot.
 
 Macros run one at a time.  If you press another hotkey while one runs, it waits its turn.
+
+**Pause** in the tray menu turns off hotkeys, hotstrings, timers and events until you choose it again.
 
 ## Settings
 
@@ -98,13 +219,58 @@ Macros run one at a time.  If you press another hotkey while one runs, it waits 
 - `script_folder`: where your scripts live.  Empty means `Documents\MicroKeys`.
 - `abort_hotkey`: the key that stops a macro, `"ctrl+alt+backspace"` by default.
 - `key_delay_ms`: the pause between keys when typing, 5 by default.  Raise it if a program drops characters.
-- `check_updates`: look for a new version once a day.
+- `check_updates`: look for a new version once a day. <!-- updates -->
+- `clipboard_history`: how many copied texts `clip.history()` keeps, 25 by default.  0 turns the history off.
+- `editor`: what opens a file name you click in the log, with `{file}` and `{line}` where the file and line go, like `"C:\\Program Files\\Notepad++\\notepad++.exe -n{line} {file}"`.  Empty means VS Code or Notepad++ if one is installed, otherwise Notepad.
+- `packages`: packages from PyPI that your scripts import, like `["requests"]`.  See [Python packages](#python-packages).
+- `debug_port`: a port for a debugger to attach to, 0 (off) by default.  See [Debugging](#debugging).
 
 The log is kept in `%LOCALAPPDATA%\MicroKeys\MicroKeys.log`.
+
+## The log and the console
+
+**Show log** in the tray menu opens the log window.  Errors are in red, and a file name with a line number, in a traceback or a message about a script, is a link: click it to open the file at that line.
+
+The line at the bottom of the log window is a Python prompt, like Python's own.  Type an expression or a statement and press Enter; it runs like a macro, so the abort hotkey stops it.  Everything from `microkeys` is already imported, and each script is there under its own name (unless that name is already taken, by `clip` say), so `MicroKeys.type_date()` runs the `type_date` function in `MicroKeys.py`.  A line ending in `:` starts a block, which runs when you enter an empty line.  Up and Down bring back earlier lines.
+
+## Python packages
+
+Scripts can use packages from PyPI.  List them in the `packages` setting, or choose **Install Python packages...** in the tray menu, which installs them and adds them to the setting:
+
+```json
+"packages": ["requests", "openpyxl"]
+```
+
+MicroKeys installs any that are missing when it starts or the scripts reload, using pip with the Python that comes with MicroKeys, into `%LOCALAPPDATA%\MicroKeys\packages`.  Only packages that come ready-built (as wheels) can be installed, since there's no compiler to build anything else; almost every popular package does.
+When an update brings a new version of Python, MicroKeys installs the packages again for it. <!-- updates -->
+
+## Debugging
+
+To step through a macro in VS Code, set `debug_port` to a port such as `5678` and reload.  MicroKeys installs the `debugpy` package and listens on that port, on this computer only.  Then attach from VS Code with a `launch.json` configuration like this one, set breakpoints in your scripts, and press the hotkey:
+
+```json
+{
+    "name": "Attach to MicroKeys",
+    "type": "debugpy",
+    "request": "attach",
+    "connect": { "host": "127.0.0.1", "port": 5678 }
+}
+```
+
+The debugger keeps listening until MicroKeys exits.
 
 ## Editor support
 
 MicroKeys writes a `pyrightconfig.json` into your script folder that points at its copy of the `microkeys` package, so VS Code (with Pylance) and other editors that use Pyright autocomplete the API and check your calls.  Open the script folder itself as the workspace.
+
+For other editors, or to import your scripts in a Python of your own (to test the logic in them, say), install the package into that Python:
+
+```
+python -m pip install -e "%LOCALAPPDATA%\MicroKeys\stubs"
+```
+
+MicroKeys keeps that folder up to date as it updates, and the install follows along. <!-- updates -->
+Outside MicroKeys every function is there, with its documentation, but nothing reaches the desktop: each call says what it would have done instead, for example `[microkeys] type 'Hello'`, and hotkeys and timers aren't bound.
 
 ## Python
 

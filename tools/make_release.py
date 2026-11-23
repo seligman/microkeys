@@ -16,7 +16,10 @@
 #   }
 #
 # Without a feed URL the zips are built without one, and those copies never
-# look for updates.
+# look for updates.  --no-updates goes further: it builds without the updater
+# (in build\<arch>-noupdates) and makes MicroKeys-<version>-<arch>-noupdates.zip,
+# never reading the feed settings.  Publishing those puts just the zips beside
+# the release's; latest.json and versions.json never name them.
 #
 # Publishing works like Notepad 2's deploy.py: every object is public-read;
 # the zips are immutable (one per version and architecture, never replaced
@@ -28,6 +31,8 @@
 #   make_release.py [--arch x64,arm64] [--build] [--notes "..."]   package into dist/
 #   make_release.py ... --upload                                     package, then publish
 #   make_release.py --upload-only [--dist <dir>]                     publish what's already in dist/
+#   make_release.py --no-updates [--arch x64,arm64] [--build] [--upload | --upload-only]
+#                                                                    the same, without the updater
 # Add --dry-run to see what publishing would do, --force to publish an older version.
 
 import argparse
@@ -75,10 +80,15 @@ def run(cmd):
     subprocess.check_call(cmd)
 
 
-def build(arch):
+def arch_build_dir(arch, updates):
+    return os.path.join(ROOT, "build", arch if updates else arch + "-noupdates")
+
+
+def build(arch, updates):
     platform = "ARM64" if arch == "arm64" else "x64"
-    build_dir = os.path.join(ROOT, "build", arch)
-    run(["cmake", "-S", ROOT, "-B", build_dir, "-G", "Visual Studio 17 2022", "-A", platform])
+    build_dir = arch_build_dir(arch, updates)
+    run(["cmake", "-S", ROOT, "-B", build_dir, "-G", "Visual Studio 17 2022", "-A", platform,
+         "-DMICROKEYS_UPDATES=" + ("ON" if updates else "OFF")])
     run(["cmake", "--build", build_dir, "--config", "Release", "--", "/m", "/v:minimal"])
 
 
@@ -90,15 +100,19 @@ def sha256_file(fn):
     return h.hexdigest()
 
 
-def package(arch, version, config, dist):
+def release_zip_name(version, arch, updates):
+    return f"MicroKeys-{version}-{arch}.zip" if updates else f"MicroKeys-{version}-{arch}-noupdates.zip"
+
+
+def package(arch, version, config, dist, updates):
     # Copy the staged build, add defaults.json with the feed, and zip it with
     # a MicroKeys/ folder at the top, which is what the updater expects
-    stage = os.path.join(ROOT, "build", arch, "stage", "Release", "MicroKeys")
+    stage = os.path.join(arch_build_dir(arch, updates), "stage", "Release", "MicroKeys")
     app = f"app-{version}"
     if not os.path.isfile(os.path.join(stage, app, "MicroKeysApp.exe")) or not os.path.isfile(os.path.join(stage, "MicroKeys.exe")):
         raise SystemExit(f"No {arch} build of {version} in {stage}; build it first or pass --build")
 
-    zip_name = f"MicroKeys-{version}-{arch}.zip"
+    zip_name = release_zip_name(version, arch, updates)
     zip_path = os.path.join(dist, zip_name)
     defaults = {}
     if config.get("feed_url"):
@@ -169,6 +183,33 @@ class S3:
             raise SystemExit(f"Upload of {name} failed:\n{r.stderr}")
 
 
+def upload_zips(s3, zips, dry_run):
+    for name, path, sha in zips:
+        existing = s3.head(name)
+        if existing is not None:
+            if existing[1] == sha:
+                print(f"{name} is already there")
+                continue
+            raise SystemExit(f"{name} is already published with other bytes; zips are never replaced, bump the version")
+        if not dry_run:
+            s3.put(name, path, "application/zip", IMMUTABLE, sha)
+
+
+def publish_without_updates(config, dist, version, archs, dry_run):
+    # Only the zips: latest.json never names them, so nothing updates to them
+    s3 = S3(config["s3_url"], config.get("aws_profile"), config.get("region"))
+    print(f"Publishing MicroKeys {version} without the updater to s3://{s3.bucket}/{s3.prefix}")
+    zips = []
+    for arch in archs:
+        name = release_zip_name(version, arch, False)
+        path = os.path.join(dist, name)
+        if not os.path.isfile(path):
+            raise SystemExit(f"No {name} in {dist}; package it first")
+        zips.append((name, path, sha256_file(path)))
+    upload_zips(s3, zips, dry_run)
+    print("Dry run, nothing uploaded" if dry_run else "Published " + ", ".join(config["feed_url"] + name for name, _, _ in zips))
+
+
 def publish(config, dist, force, dry_run):
     # Zips, then versions.json, then latest.json
     with open(os.path.join(dist, "latest.json"), encoding="utf-8") as f:
@@ -197,15 +238,7 @@ def publish(config, dist, force, dry_run):
     if not zips:
         raise SystemExit("latest.json names no zips")
 
-    for name, path, sha in zips:
-        existing = s3.head(name)
-        if existing is not None:
-            if existing[1] == sha:
-                print(f"{name} is already there")
-                continue
-            raise SystemExit(f"{name} is already published with other bytes; zips are never replaced, bump the version")
-        if not dry_run:
-            s3.put(name, path, "application/zip", IMMUTABLE, sha)
+    upload_zips(s3, zips, dry_run)
 
     versions = json.loads(s3.get_text("versions.json") or "[]")
     if not any(v.get("version") == version and v == manifest for v in versions):
@@ -231,36 +264,41 @@ def main():
     parser.add_argument("--dist", default=os.path.join(ROOT, "dist"))
     parser.add_argument("--dry-run", action="store_true", help="show what publishing would do")
     parser.add_argument("--force", action="store_true", help="publish even if a newer version is already out")
+    parser.add_argument("--no-updates", action="store_true", help="build and package without the updater")
     args = parser.parse_args()
 
-    config = load_config()
-    if (args.upload or args.upload_only) and not (config.get("feed_url") and config.get("s3_url")):
+    publishing = args.upload or args.upload_only
+    config = load_config() if publishing or not args.no_updates else {}
+    if publishing and not (config.get("feed_url") and config.get("s3_url")):
         raise SystemExit(f"Publishing needs feed_url and s3_url in {CONFIG} or the environment")
+    version = read_version()
+    archs = [x.strip() for x in args.arch.split(",") if x.strip()]
 
     if not args.upload_only:
-        version = read_version()
-        archs = [x.strip() for x in args.arch.split(",") if x.strip()]
         os.makedirs(args.dist, exist_ok=True)
         manifest = {"version": version}
         for arch in archs:
             if args.build:
-                build(arch)
-            info = package(arch, version, config, args.dist)
+                build(arch, not args.no_updates)
+            info = package(arch, version, {} if args.no_updates else config, args.dist, not args.no_updates)
             manifest[f"url_{arch}"] = config.get("feed_url", "") + info["name"]
             manifest[f"sha256_{arch}"] = info["sha256"]
             manifest[f"size_{arch}"] = info["size"]
             print(f"Created {info['zip']}: {info['size']:,} bytes, SHA-256 {info['sha256']}")
-        if args.notes:
-            manifest["notes"] = args.notes
-        latest = os.path.join(args.dist, "latest.json")
-        with open(latest, "w", encoding="utf-8") as f:
-            json.dump(manifest, f, indent=4)
-            f.write("\n")
-        print(f"Created {latest}")
-        if not config.get("feed_url"):
-            print("No feed URL configured: these zips won't look for updates")
+        if not args.no_updates:
+            if args.notes:
+                manifest["notes"] = args.notes
+            latest = os.path.join(args.dist, "latest.json")
+            with open(latest, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, indent=4)
+                f.write("\n")
+            print(f"Created {latest}")
+            if not config.get("feed_url"):
+                print("No feed URL configured: these zips won't look for updates")
 
-    if args.upload or args.upload_only:
+    if publishing and args.no_updates:
+        publish_without_updates(config, args.dist, version, archs, args.dry_run)
+    elif publishing:
         publish(config, args.dist, args.force, args.dry_run)
 
 

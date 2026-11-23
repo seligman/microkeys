@@ -240,11 +240,24 @@ def test_settings(env):
     (env.data / "settings.json").write_text(json.dumps({"abort_hotkey": "ctrl+nothing", "key_delay_ms": 0}))
     (env.app / "defaults.json").write_text(json.dumps({"update_feed": "https://example.com/feed/"}))
     assert env.start()
-    script_dir, mods, key, feed, check = env.fake.config
+    script_dir, mods, key, feed, check, editor = env.fake.config
     assert (mods, key) == (3, "backspace")
     assert "Bad abort_hotkey setting" in env.fake.log_text()
     assert feed == "https://example.com/feed/"
     assert _settings.current["key_delay_ms"] == 0
+
+
+
+def test_settings_without_updater(env):
+    # A build without the updater writes settings.json without its setting
+    config = dict(env.config(headless=False), updates=False)
+    assert _runtime.startup(config)
+    fn = env.data / "settings.json"
+    assert "check_updates" not in json.loads(fn.read_text())
+    fn.unlink()
+    _settings.add_packages(config, ["requests"], print)
+    assert json.loads(fn.read_text()) == dict(_settings._first_settings(config), packages=["requests"])
+    assert "check_updates" not in json.loads(fn.read_text())
 
 
 def test_clip_helpers(env):

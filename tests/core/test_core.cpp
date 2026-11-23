@@ -141,6 +141,15 @@ static void TestHotkeys() {
 	CHECK(sink.Logged.size() == 1);
 	CHECK(triggers.Registered().empty());
 
+	// The same binding published again (a macro bound something else) isn't
+	// reported again; a new one for the key is
+	triggers.SetBindings(b2, other);
+	CHECK(sink.Logged.size() == 1);
+	Bindings b3;
+	b3.Hotkeys.push_back(Hotkey(11, 0, "f7"));
+	triggers.SetBindings(b3, other);
+	CHECK(sink.Logged.size() == 2);
+
 	// New bindings release the old ones
 	CHECK(sink.Live.empty());
 	triggers.Clear();
@@ -225,6 +234,90 @@ static void TestCommands() {
 	CHECK(triggers.FindCommand("nope") == 0);
 }
 
+static WindowEventBinding WindowEvent(int id, int event, const string& process, const string& title = "") {
+	WindowEventBinding ret;
+	ret.ID = id;
+	ret.Event = event;
+	ret.When.Process = process;
+	ret.When.Title = title;
+	return ret;
+}
+
+static void TestWindowEvents() {
+	FakeSink sink;
+	Triggers triggers(&sink);
+	WindowInfo notepad = Window("notepad.exe", "Untitled - Notepad");
+	notepad.Handle = 100;
+	WindowInfo other = Window("code.exe", "main.cpp");
+	other.Handle = 200;
+
+	Bindings b;
+	b.WindowEvents.push_back(WindowEvent(1, WINDOW_ACTIVATE, "notepad.exe"));
+	b.WindowEvents.push_back(WindowEvent(2, WINDOW_ACTIVATE, ""));
+	b.WindowEvents.push_back(WindowEvent(3, WINDOW_OPEN, "", "Save As"));
+	b.WindowEvents.push_back(WindowEvent(4, WINDOW_OPEN, "code.exe"));
+	triggers.SetBindings(b, notepad);
+	CHECK(triggers.WantsWindowEvent(WINDOW_OPEN));
+	CHECK(triggers.HasFilters());
+	CHECK(triggers.WatchesTitles());
+
+	// What was in front when the bindings arrived doesn't count as a change
+	triggers.OnActivated(notepad);
+	CHECK(sink.Fired.empty());
+	triggers.OnActivated(other);
+	CHECK(sink.Fired == vector<string>({"4:2:200"}));
+	triggers.OnActivated(other);
+	CHECK(sink.Fired.size() == 1);
+	triggers.OnActivated(notepad);
+	CHECK(sink.Fired.size() == 3 && sink.Fired[1] == "4:1:100" && sink.Fired[2] == "4:2:100");
+
+	// A window that matches at once fires at once; one waiting on its title
+	// fires when the title arrives, if it arrives in time
+	sink.Fired.clear();
+	WindowInfo dialog = Window("code.exe", "");
+	dialog.Handle = 300;
+	triggers.OnWindowOpened(dialog, 1000);
+	CHECK(sink.Fired == vector<string>({"4:4:300"}));
+	CHECK(triggers.IsPendingWindow(300));
+	dialog.Title = "Loading";
+	triggers.OnWindowTitle(dialog, 1500);
+	CHECK(sink.Fired.size() == 1);
+	dialog.Title = "Save As";
+	triggers.OnWindowTitle(dialog, 1600);
+	CHECK(sink.Fired.size() == 2 && sink.Fired[1] == "4:3:300");
+	CHECK(!triggers.IsPendingWindow(300));
+
+	WindowInfo late = Window("x.exe", "");
+	late.Handle = 400;
+	triggers.OnWindowOpened(late, 1000);
+	late.Title = "Save As";
+	triggers.OnWindowTitle(late, 5000);
+	CHECK(sink.Fired.size() == 2);
+	CHECK(!triggers.IsPendingWindow(400));
+
+	triggers.OnWindowOpened(late, 6000);
+	triggers.OnWindowClosed(400);
+	CHECK(!triggers.IsPendingWindow(400));
+
+	// New bindings (a macro bound something) don't end the wait for a title
+	WindowInfo slow = Window("y.exe", "");
+	slow.Handle = 500;
+	triggers.OnWindowOpened(slow, 8000);
+	triggers.SetBindings(b, notepad);
+	CHECK(triggers.IsPendingWindow(500));
+	Bindings none;
+	triggers.SetBindings(none, notepad);
+	CHECK(!triggers.IsPendingWindow(500));
+	triggers.SetBindings(b, notepad);
+
+	// Paused: nothing fires
+	sink.Fired.clear();
+	triggers.SetPaused(true, notepad);
+	triggers.OnActivated(other);
+	triggers.OnWindowOpened(dialog, 7000);
+	CHECK(sink.Fired.empty());
+}
+
 int RunUpdateCoreTests(int& checks);
 
 int main() {
@@ -232,6 +325,7 @@ int main() {
 	TestHotkeys();
 	TestHotstrings();
 	TestCommands();
+	TestWindowEvents();
 	_failures += RunUpdateCoreTests(_checks);
 	printf("%d checks, %d failures\n", _checks, _failures);
 	return _failures == 0 ? 0 : 1;

@@ -1,0 +1,13 @@
+# The microkeys package, for editors and plain Python:
+#
+#   python -m pip install -e <this folder>
+#
+# Outside MicroKeys every function is there, with its docstring, but nothing
+# reaches the desktop; each call says what it would have done.  The build
+# backend is the small one next to this file, so installing needs nothing
+# from the network.
+
+[build-system]
+requires = []
+build-backend = "_build_backend"
+backend-path = ["."]

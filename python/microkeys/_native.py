@@ -1,5 +1,6 @@
 # Access to the _microkeys module that the MicroKeys app builds in.  Outside
-# the app (an editor, a docs tool) it's missing, and any use says so.
+# the app (plain Python, an editor, a docs tool) the stand-in in _offline
+# takes its place and says what each call would have done.
 
 LOG_INFO = 0
 LOG_OUTPUT = 1
@@ -14,14 +15,16 @@ MOD_META = 8
 FIRE_HOTKEY = 1
 FIRE_HOTSTRING = 2
 FIRE_COMMAND = 3
+FIRE_WINDOW = 4
+FIRE_TIMER = 5
+FIRE_CLIPBOARD = 6
 
-
-class _Missing:
-    def __getattr__(self, name):
-        raise RuntimeError("The microkeys package only works inside MicroKeys")
-
+WINDOW_ACTIVATE = 1
+WINDOW_OPEN = 2
 
 try:
     import _microkeys as native
 except ImportError:
-    native = _Missing()
+    from . import _offline as native
+
+OFFLINE = getattr(native, "OFFLINE", False)

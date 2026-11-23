@@ -10,6 +10,7 @@ class WinPlatform : public IPlatform {
 public:
 	HWND ClipboardOwner = NULL;
 	function<void(const string&, const string&)> OnToast;
+	function<void(const string&, int)> OnOverlay;
 
 	bool IsKeyName(const string& name) override;
 	bool SendKeys(const vector<KeyAction>& actions, int delayMs, const atomic<bool>& cancel, string& error) override;
@@ -23,6 +24,12 @@ public:
 	bool GetClipboardText(string& text) override;
 	bool SetClipboardText(const string& text) override;
 	uint32_t ClipboardSequence() override;
+	vector<string> ClipboardKinds() override;
+	bool ReadClipboard(const string& kind, string& data) override;
+	bool WriteClipboard(const vector<ClipItem>& items, string& error) override;
+	bool SaveClipboard(vector<ClipItem>& items) override;
+	bool RestoreClipboard(const vector<ClipItem>& items) override;
+	bool ClipboardConcealed() override;
 
 	vector<WindowInfo> ListWindows(bool includeHidden) override;
 	WindowInfo ForegroundWindow() override;
@@ -40,6 +47,7 @@ public:
 	bool AskText(const string& prompt, const string& title, const string& initial, string& result) override;
 	int AskChoice(const vector<string>& items, const string& prompt, const string& title) override;
 	void Toast(const string& title, const string& text) override;
+	void ShowOverlay(const string& text, int timeoutMs) override;
 
 	bool ShellOpen(const string& target, string& error) override;
 	string PlatformName() override;

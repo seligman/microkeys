@@ -184,72 +184,6 @@ void WinPlatform::MouseWheel(int clicks, bool horizontal) {
 	SendInput(1, &input, sizeof(INPUT));
 }
 
-static bool OpenClipboardRetry(HWND owner) {
-	// Another program may have the clipboard open for a moment
-	for (int i = 0; i < 20; i++) {
-		if (OpenClipboard(owner)) {
-			return true;
-		}
-		Sleep(10);
-	}
-	return false;
-}
-
-bool WinPlatform::GetClipboardText(string& text) {
-	// False when the clipboard has no text, or couldn't be opened
-	if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboardRetry(ClipboardOwner)) {
-		return false;
-	}
-	bool ret = false;
-	HANDLE data = GetClipboardData(CF_UNICODETEXT);
-	if (data != NULL) {
-		const wchar_t* locked = (const wchar_t*)GlobalLock(data);
-		if (locked != NULL) {
-			size_t max = GlobalSize(data) / sizeof(wchar_t);
-			size_t len = 0;
-			while (len < max && locked[len] != 0) {
-				len++;
-			}
-			text = Utf16ToUtf8(locked, len);
-			ret = true;
-			GlobalUnlock(data);
-		}
-	}
-	CloseClipboard();
-	return ret;
-}
-
-bool WinPlatform::SetClipboardText(const string& text) {
-	wstring wide = Utf8ToUtf16(text);
-	HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, (wide.size() + 1) * sizeof(wchar_t));
-	if (mem == NULL) {
-		return false;
-	}
-	wchar_t* locked = (wchar_t*)GlobalLock(mem);
-	if (locked == NULL) {
-		GlobalFree(mem);
-		return false;
-	}
-	memcpy(locked, wide.c_str(), (wide.size() + 1) * sizeof(wchar_t));
-	GlobalUnlock(mem);
-
-	if (!OpenClipboardRetry(ClipboardOwner)) {
-		GlobalFree(mem);
-		return false;
-	}
-	EmptyClipboard();
-	bool ok = SetClipboardData(CF_UNICODETEXT, mem) != NULL;
-	CloseClipboard();
-	if (!ok) {
-		GlobalFree(mem);
-	}
-	return ok;
-}
-
-uint32_t WinPlatform::ClipboardSequence() {
-	return GetClipboardSequenceNumber();
-}
-
 static string ProcessName(DWORD pid) {
 	// The exe's file name, like "notepad.exe"
 	HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
@@ -648,6 +582,12 @@ int WinPlatform::AskChoice(const vector<string>& items, const string& prompt, co
 void WinPlatform::Toast(const string& title, const string& text) {
 	if (OnToast) {
 		OnToast(title, text);
+	}
+}
+
+void WinPlatform::ShowOverlay(const string& text, int timeoutMs) {
+	if (OnOverlay) {
+		OnOverlay(text, timeoutMs);
 	}
 }
 
