@@ -269,12 +269,19 @@ static PyObject* mk_is_key(PyObject* self, PyObject* args) {
 	return PyBool_FromLong(PLAT->IsKeyName(name));
 }
 
+static PyObject* mk_uses_directinput(PyObject* self, PyObject* args) {
+	return PyBool_FromLong(PLAT->UsesDirectInput());
+}
+
 static PyObject* mk_send_keys(PyObject* self, PyObject* args) {
 	// actions: a list of (kind, value) where kind is 0 for key down, 1 for key
-	// up (value is a key name), or 2 for a character (value is one char)
+	// up (value is a key name), or 2 for a character (value is one char).
+	// Keys stay down for hold ms, and delay ms pass between them.  A frame
+	// above 0 means the program uses DirectInput: both are at least frame ms,
+	// and characters are typed with their keys.
 	PyObject* list;
-	int delay;
-	if (!PyArg_ParseTuple(args, "O!i", &PyList_Type, &list, &delay)) {
+	int delay, hold, frame;
+	if (!PyArg_ParseTuple(args, "O!iii", &PyList_Type, &list, &delay, &hold, &frame)) {
 		return NULL;
 	}
 	vector<KeyAction> actions;
@@ -305,7 +312,7 @@ static PyObject* mk_send_keys(PyObject* self, PyObject* args) {
 	{
 		NativeWait wait;
 		Py_BEGIN_ALLOW_THREADS
-		ok = PLAT->SendKeys(actions, delay, HOST->CancelFlag, error);
+		ok = PLAT->SendKeys(actions, delay, hold, frame, HOST->CancelFlag, error);
 		Py_END_ALLOW_THREADS
 	}
 	if (RaiseIfCancelled()) {
@@ -745,6 +752,7 @@ static PyMethodDef _methods[] = {
 	{ "wait_modifiers", mk_wait_modifiers, METH_VARARGS, NULL },
 	{ "is_key", mk_is_key, METH_VARARGS, NULL },
 	{ "send_keys", mk_send_keys, METH_VARARGS, NULL },
+	{ "uses_directinput", mk_uses_directinput, METH_NOARGS, NULL },
 	{ "cursor", mk_cursor, METH_NOARGS, NULL },
 	{ "move_cursor", mk_move_cursor, METH_VARARGS, NULL },
 	{ "mouse_button", mk_mouse_button, METH_VARARGS, NULL },

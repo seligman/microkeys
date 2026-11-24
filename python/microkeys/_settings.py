@@ -13,6 +13,17 @@ DEFAULTS = {
     "abort_hotkey": "ctrl+alt+backspace",
     # Pause between keys when typing, in milliseconds
     "key_delay_ms": 5,
+    # How long each key stays down when typing, in milliseconds.  Windows 11's
+    # Notepad loses keys held for less than about 10 ms.
+    "key_hold_ms": 15,
+    # In a program that uses DirectInput (mostly games), the least time each
+    # key stays down and the gap after it, in milliseconds.  Those that read
+    # the keyboard once a frame miss shorter keys; 40 covers 30 frames a
+    # second, with some room for a slow frame.  0 turns this off.
+    "directinput_key_ms": 40,
+    # Programs to treat as using DirectInput or not, whatever MicroKeys
+    # detects, like {"oldgame.exe": true, "launcher.exe": false}
+    "directinput_programs": {},
     # Look for a new version once a day
     "check_updates": True,
     # How many recently copied texts clip.history() keeps; 0 turns it off

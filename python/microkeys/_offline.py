@@ -121,7 +121,11 @@ def is_key(name):
     return True
 
 
-def send_keys(actions, delay_ms):
+def uses_directinput():
+    return False
+
+
+def send_keys(actions, delay_ms, hold_ms, frame_ms):
     if actions:
         say(_describe_keys(actions))
 

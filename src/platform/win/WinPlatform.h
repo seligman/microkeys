@@ -13,8 +13,12 @@ public:
 	function<void(const string&, int)> OnOverlay;
 
 	bool IsKeyName(const string& name) override;
-	bool SendKeys(const vector<KeyAction>& actions, int delayMs, const atomic<bool>& cancel, string& error) override;
+	bool SendKeys(const vector<KeyAction>& actions, int delayMs, int holdMs, int frameMs, const atomic<bool>& cancel, string& error) override;
+	// For the keyboard hook, which has to answer quickly: everything goes out
+	// at once, without waiting on the program in front
+	bool SendKeysNow(const vector<KeyAction>& actions, string& error);
 	bool ModifiersHeld() override;
+	bool UsesDirectInput() override;
 
 	void GetCursor(int& x, int& y) override;
 	void MoveCursor(int x, int y) override;

@@ -18,6 +18,8 @@ class FakeMicrokeys(types.ModuleType):
         self.toasts = []
         self.overlays = []
         self.sent = []
+        self.timings = []
+        self.directinput = set()
         self.clipboard = None
         self.clip_other = {}
         self.clip_seq = 1
@@ -108,7 +110,11 @@ class FakeMicrokeys(types.ModuleType):
     def is_key(self, name):
         return name != "f24" or self.platform_name == "windows"
 
-    def send_keys(self, actions, delay):
+    def uses_directinput(self):
+        return self.foreground()["process"] in self.directinput
+
+    def send_keys(self, actions, delay, hold, frame):
+        self.timings.append((delay, hold, frame))
         for kind, value in actions:
             if kind in (0, 1) and len(value) > 1 and not self.is_key(value):
                 raise ValueError(f"Unknown key: {value}")

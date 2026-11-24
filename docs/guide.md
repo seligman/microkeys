@@ -218,7 +218,10 @@ Macros run one at a time.  If you press another hotkey while one runs, it waits 
 
 - `script_folder`: where your scripts live.  Empty means `Documents\MicroKeys`.
 - `abort_hotkey`: the key that stops a macro, `"ctrl+alt+backspace"` by default.
-- `key_delay_ms`: the pause between keys when typing, 5 by default.  Raise it if a program drops characters.
+- `key_delay_ms`: the pause between keys when typing, 5 by default.
+- `key_hold_ms`: how long each key stays down when typing, 15 by default.  Raise it, or `key_delay_ms`, if a program drops characters.
+- `directinput_key_ms`: in programs that use DirectInput, mostly games, the least time each key stays down and the pause after it, 40 by default.  Many of them read the keyboard once a frame and miss shorter keys; 40 covers 30 frames a second, with some room for a slow frame.  MicroKeys also types characters there with the keys that make them, since DirectInput doesn't see text.  0 turns this off.
+- `directinput_programs`: programs to treat as using DirectInput or not, whatever MicroKeys detects, like `{"oldgame.exe": true, "launcher.exe": false}`.  Names can use `*` and `?`.  Use it for a game that misses keys although MicroKeys finds no DirectInput in it, or for a program that loads DirectInput but types fine at full speed.
 - `check_updates`: look for a new version once a day. <!-- updates -->
 - `clipboard_history`: how many copied texts `clip.history()` keeps, 25 by default.  0 turns the history off.
 - `editor`: what opens a file name you click in the log, with `{file}` and `{line}` where the file and line go, like `"C:\\Program Files\\Notepad++\\notepad++.exe -n{line} {file}"`.  Empty means VS Code or Notepad++ if one is installed, otherwise Notepad.

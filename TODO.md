@@ -32,6 +32,13 @@ Done for 1.1:
 - [x] `ui.show()`: a message on screen while a macro works, or to say it's done
 - [x] Builds without the updater (`make_release.py --no-updates`)
 
+Done for 1.1.1:
+
+- [x] Typing holds each key down (`key_hold_ms`, 15 ms), with precise waits between keys; Windows 11's Notepad loses keys that come straight back up
+- [x] Programs that load DirectInput get keys lasting at least a frame (`directinput_key_ms`, 40 ms), and characters typed with their keys; `directinput_programs` overrides the detection per program
+- [x] Before each key goes down, typing waits (up to a second) for the program in front to get back to its messages, so keys don't pile up while it's busy
+- [x] A Ctrl+Alt hotkey lets go of Ctrl and presses it again while Alt is still down; otherwise when Alt is let go first, Windows 11's Notepad shows its access keys and the macro's typing drives its menus
+
 Later (P3):
 
 - [ ] Key remapping and mouse-button triggers

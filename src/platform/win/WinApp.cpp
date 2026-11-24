@@ -969,6 +969,32 @@ void WinApp::OnKeyDown(const KBDLLHOOKSTRUCT* kb) {
 	}
 }
 
+static void MaskAlt(UINT mods) {
+	// Windows keeps the hotkey's own key from the program in front, so if Alt
+	// comes up while Ctrl is still down, Windows 11's Notepad (WinUI) sees
+	// Ctrl+Alt with nothing in between and shows its access keys, and the
+	// macro's typing goes to its menus.  A Ctrl going down while Alt is still
+	// down stops that, so let go of the Ctrl being held and press it again.
+	// Keys that do nothing (VK 0xE8, which AutoHotkey uses, or VK_NONAME)
+	// don't stop it.  A Ctrl already let go is fine as it is.
+	if ((mods & (MOD_CONTROL | MOD_ALT)) != (MOD_CONTROL | MOD_ALT)) {
+		return;
+	}
+	UINT vk = (GetAsyncKeyState(VK_RCONTROL) & 0x8000) ? VK_RCONTROL : (GetAsyncKeyState(VK_LCONTROL) & 0x8000) ? VK_LCONTROL : 0;
+	if (vk == 0) {
+		return;
+	}
+	for (int i = 0; i < 2; i++) {
+		INPUT input = { 0 };
+		input.type = INPUT_KEYBOARD;
+		input.ki.wVk = (WORD)vk;
+		input.ki.wScan = (WORD)MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
+		input.ki.dwFlags = (vk == VK_RCONTROL ? KEYEVENTF_EXTENDEDKEY : 0) | (i == 0 ? KEYEVENTF_KEYUP : 0);
+		input.ki.dwExtraInfo = MICROKEYS_INPUT_TAG;
+		SendInput(1, &input, sizeof(INPUT));
+	}
+}
+
 bool WinApp::PassAltGr(UINT mods, UINT vk) {
 	// To Windows, AltGr is Ctrl+Alt, so a Ctrl+Alt hotkey also catches AltGr
 	// characters (AltGr+E is the euro sign on a German layout).  When the
@@ -997,9 +1023,8 @@ bool WinApp::PassAltGr(UINT mods, UINT vk) {
 		actions.push_back(action);
 		_triggers->OnChar(c, _foreground);
 	}
-	atomic<bool> never(false);
 	string error;
-	_platform.SendKeys(actions, 0, never, error);
+	_platform.SendKeysNow(actions, error);
 	return true;
 }
 
@@ -1498,9 +1523,11 @@ LRESULT WinApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 
 	case WM_HOTKEY:
 		if (wParam == ABORT_HOTKEY_ID) {
+			MaskAlt(LOWORD(lParam));
 			Abort();
 		}
 		else if (!PassAltGr(LOWORD(lParam), HIWORD(lParam))) {
+			MaskAlt(LOWORD(lParam));
 			_triggers->OnHotkey((int)wParam);
 		}
 		return 0;

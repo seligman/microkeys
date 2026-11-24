@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from microkeys import _keyspec, _runtime, _settings
+from microkeys import _keyspec, _runtime, _settings, keys
 
 
 def test_parse_hotkey(env):
@@ -246,6 +246,38 @@ def test_settings(env):
     assert feed == "https://example.com/feed/"
     assert _settings.current["key_delay_ms"] == 0
 
+
+def test_key_timing(env):
+    # key_delay_ms and key_hold_ms pace typing, and a call can set its own
+    (env.data / "settings.json").write_text(json.dumps({"key_delay_ms": 3, "key_hold_ms": 12}))
+    assert env.start()
+    env.fake.timings.clear()
+    keys.type("ab")
+    keys.type("ab", delay=0.02, hold=0.03)
+    keys.press("ctrl+c", delay=0.05)
+    assert env.fake.timings == [(3, 12, 0), (20, 30, 0), (50, 12, 0)]
+
+
+def test_directinput(env, monkeypatch):
+    # A program that loads DirectInput gets directinput_key_ms, and
+    # directinput_programs overrides what's detected
+    programs = {"notepad.exe": False, "c?de.EXE": True}
+    (env.data / "settings.json").write_text(json.dumps({"directinput_programs": programs}))
+    assert env.start()
+    env.fake.windows.append({"handle": 0x404, "title": "Game", "class_name": "Game", "process": "game.exe", "pid": 44})
+    env.fake.directinput = {"game.exe", "notepad.exe"}
+    frames = []
+    for handle in (0x404, 0x101, 0x202, 0x303):
+        env.fake.front = handle
+        env.fake.timings.clear()
+        keys.type("a")
+        frames.append(env.fake.timings[0][2])
+    assert frames == [40, 0, 40, 0]
+    monkeypatch.setitem(_settings.current, "directinput_key_ms", 0)
+    env.fake.front = 0x404
+    env.fake.timings.clear()
+    keys.press("a")
+    assert env.fake.timings[0][2] == 0
 
 
 def test_settings_without_updater(env):

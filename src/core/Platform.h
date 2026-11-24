@@ -118,8 +118,9 @@ public:
 
 	// Keyboard
 	virtual bool IsKeyName(const string& name) = 0;
-	virtual bool SendKeys(const vector<KeyAction>& actions, int delayMs, const atomic<bool>& cancel, string& error) = 0;
+	virtual bool SendKeys(const vector<KeyAction>& actions, int delayMs, int holdMs, int frameMs, const atomic<bool>& cancel, string& error) = 0;
 	virtual bool ModifiersHeld() = 0;
+	virtual bool UsesDirectInput() = 0;
 
 	// Mouse
 	virtual void GetCursor(int& x, int& y) = 0;

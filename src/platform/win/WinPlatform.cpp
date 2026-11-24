@@ -4,6 +4,7 @@
 #include "Resource.h"
 #include <dwmapi.h>
 #include <shellscalingapi.h>
+#include <tlhelp32.h>
 #include <algorithm>
 
 static HWND H(uint64_t handle) {
@@ -44,87 +45,234 @@ static void AddModifiers(vector<INPUT>& inputs, int mods, bool up, HKL layout) {
 	}
 }
 
-static void AddChar(vector<INPUT>& inputs, char32_t c, HKL layout) {
-	// A character typed as text, so it works on any keyboard layout
-	if (c == '\n') {
-		AddKey(inputs, VK_RETURN, false, false, layout);
-		AddKey(inputs, VK_RETURN, false, true, layout);
-		return;
-	}
-	if (c == '\t') {
-		AddKey(inputs, VK_TAB, false, false, layout);
-		AddKey(inputs, VK_TAB, false, true, layout);
-		return;
-	}
-	wchar_t units[2];
-	int count = 1;
+struct KeyStep {
+	// Input events that go out together, then the wait before the next ones
+	vector<INPUT> Inputs;
+	int WaitMs;
+	bool CanStop;
+};
+
+static INPUT UnicodeInput(wchar_t unit, bool up) {
+	INPUT input = { 0 };
+	input.type = INPUT_KEYBOARD;
+	input.ki.wScan = unit;
+	input.ki.dwFlags = KEYEVENTF_UNICODE | (up ? KEYEVENTF_KEYUP : 0);
+	input.ki.dwExtraInfo = MICROKEYS_INPUT_TAG;
+	return input;
+}
+
+static bool CharKey(char32_t c, HKL layout, KeyCode& code) {
+	// The key and modifiers that type c on this layout right now, if there are
+	// any.  Caps Lock flips Shift for some keys, and a dead key doesn't count.
 	if (c >= 0x10000) {
+		return false;
+	}
+	SHORT found = VkKeyScanExW((wchar_t)c, layout);
+	if (found == -1) {
+		return false;
+	}
+	BYTE state[256] = { 0 };
+	state[VK_CAPITAL] = GetKeyState(VK_CAPITAL) & 1;
+	for (int flip : { 0, 1 }) {
+		int shift = HIBYTE(found) ^ flip;
+		state[VK_SHIFT] = (shift & 1) ? 0x80 : 0;
+		state[VK_CONTROL] = (shift & 2) ? 0x80 : 0;
+		state[VK_MENU] = (shift & 4) ? 0x80 : 0;
+		wchar_t typed[4];
+		// Flag 4 leaves the keyboard's dead key state alone
+		if (ToUnicodeEx(LOBYTE(found), MapVirtualKeyExW(LOBYTE(found), MAPVK_VK_TO_VSC, layout), state, typed, 4, 4, layout) == 1 && typed[0] == (wchar_t)c) {
+			code = KeyCode();
+			code.VK = LOBYTE(found);
+			code.ImpliedMods = ((shift & 1) ? MOD_KEY_SHIFT : 0) | ((shift & 2) ? MOD_KEY_CTRL : 0) | ((shift & 4) ? MOD_KEY_ALT : 0);
+			return true;
+		}
+	}
+	return false;
+}
+
+static void AddChar(vector<KeyStep>& steps, char32_t c, HKL layout, int holdMs, int delayMs, bool byKey) {
+	// A character typed as text, so it works on any keyboard layout, or with
+	// its key when byKey asks and the layout has one.  Its key stays down for
+	// holdMs, since some programs (Windows 11's Notepad) lose keys that come
+	// straight back up.
+	vector<pair<vector<INPUT>, vector<INPUT>>> strokes;
+	KeyCode code;
+	if (c == '\n' || c == '\t') {
+		UINT vk = c == '\n' ? VK_RETURN : VK_TAB;
+		strokes.resize(1);
+		AddKey(strokes[0].first, vk, false, false, layout);
+		AddKey(strokes[0].second, vk, false, true, layout);
+	}
+	else if (byKey && CharKey(c, layout, code)) {
+		strokes.resize(1);
+		AddModifiers(strokes[0].first, code.ImpliedMods, false, layout);
+		AddKey(strokes[0].first, code.VK, false, false, layout);
+		AddKey(strokes[0].second, code.VK, false, true, layout);
+		AddModifiers(strokes[0].second, code.ImpliedMods, true, layout);
+	}
+	else if (c >= 0x10000) {
 		c -= 0x10000;
-		units[0] = (wchar_t)(0xD800 + (c >> 10));
-		units[1] = (wchar_t)(0xDC00 + (c & 0x3FF));
-		count = 2;
+		for (wchar_t unit : { (wchar_t)(0xD800 + (c >> 10)), (wchar_t)(0xDC00 + (c & 0x3FF)) }) {
+			strokes.push_back({ { UnicodeInput(unit, false) }, { UnicodeInput(unit, true) } });
+		}
 	}
 	else {
-		units[0] = (wchar_t)c;
+		strokes.push_back({ { UnicodeInput((wchar_t)c, false) }, { UnicodeInput((wchar_t)c, true) } });
 	}
-	for (int i = 0; i < count; i++) {
-		for (int up = 0; up < 2; up++) {
-			INPUT input = { 0 };
-			input.type = INPUT_KEYBOARD;
-			input.ki.wScan = units[i];
-			input.ki.dwFlags = KEYEVENTF_UNICODE | (up ? KEYEVENTF_KEYUP : 0);
-			input.ki.dwExtraInfo = MICROKEYS_INPUT_TAG;
-			inputs.push_back(input);
-		}
+	// Never stop halfway through a character, and send the two halves of a
+	// surrogate pair back to back
+	for (size_t i = 0; i < strokes.size(); i++) {
+		steps.push_back({ strokes[i].first, holdMs, i == 0 });
+		steps.push_back({ strokes[i].second, i + 1 < strokes.size() ? 0 : delayMs, false });
 	}
 }
 
-bool WinPlatform::SendKeys(const vector<KeyAction>& actions, int delayMs, const atomic<bool>& cancel, string& error) {
-	// Turn each action into input events.  With a delay, each action goes out
-	// on its own, checking for a cancel between them.
-	HKL layout = ForegroundLayout();
-	vector<vector<INPUT>> groups;
-	for (auto& action : actions) {
-		vector<INPUT> inputs;
-		if (action.Type == KeyAction::Char) {
-			AddChar(inputs, action.Character, layout);
+class PreciseWait {
+	// Sleep() rounds up to the system timer tick, 15.6 ms unless something
+	// asked for finer, so the waits between keys use a high resolution timer
+public:
+	~PreciseWait() {
+		if (_timer != NULL) {
+			CloseHandle(_timer);
 		}
-		else {
-			KeyCode code;
-			if (!LookupKey(action.Key, layout, code)) {
-				error = "Unknown key, or not on this keyboard layout: " + action.Key;
-				return false;
-			}
-			bool up = action.Type == KeyAction::Up;
-			if (!up) {
-				AddModifiers(inputs, code.ImpliedMods, false, layout);
-			}
-			AddKey(inputs, code.VK, code.Extended, up, layout);
-			if (up) {
-				AddModifiers(inputs, code.ImpliedMods, true, layout);
-			}
-		}
-		groups.push_back(inputs);
 	}
 
+	void Wait(int ms) {
+		if (ms <= 0) {
+			return;
+		}
+		if (_timer == NULL) {
+			_timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+		}
+		LARGE_INTEGER due;
+		due.QuadPart = -10000LL * ms;
+		if (_timer == NULL || !SetWaitableTimer(_timer, &due, 0, NULL, NULL, FALSE) ||
+			WaitForSingleObject(_timer, INFINITE) != WAIT_OBJECT_0) {
+			Sleep(ms);
+		}
+	}
+
+private:
+	HANDLE _timer = NULL;
+};
+
+static void WaitForForeground() {
+	// Wait until the program in front is reading its messages again, so keys
+	// don't pile up while it's busy (Windows 11's Notepad garbles keys that
+	// arrive then).  At most a second, and not for a hung program or for
+	// MicroKeys' own windows.
+	HWND hwnd = GetForegroundWindow();
+	DWORD pid = 0;
+	if (hwnd == NULL || GetWindowThreadProcessId(hwnd, &pid) == 0 || pid == GetCurrentProcessId()) {
+		return;
+	}
+	DWORD_PTR result;
+	SendMessageTimeoutW(hwnd, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 1000, &result);
+}
+
+bool WinPlatform::UsesDirectInput() {
+	// Has the program in front loaded DirectInput?  Mostly games, and the ones
+	// that read the keyboard's state once a frame miss keys shorter than that.
+	HWND hwnd = GetForegroundWindow();
+	DWORD pid = 0;
+	if (hwnd == NULL || GetWindowThreadProcessId(hwnd, &pid) == 0) {
+		return false;
+	}
+	HANDLE snap = INVALID_HANDLE_VALUE;
+	for (int tries = 0; tries < 3 && snap == INVALID_HANDLE_VALUE; tries++) {
+		// Fails with ERROR_BAD_LENGTH if the program is loading a module just then
+		snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
+		if (snap == INVALID_HANDLE_VALUE && GetLastError() != ERROR_BAD_LENGTH) {
+			return false;
+		}
+	}
+	if (snap == INVALID_HANDLE_VALUE) {
+		return false;
+	}
+	bool found = false;
+	MODULEENTRY32W module = { sizeof(module) };
+	for (BOOL more = Module32FirstW(snap, &module); more && !found; more = Module32NextW(snap, &module)) {
+		found = _wcsicmp(module.szModule, L"dinput8.dll") == 0 || _wcsicmp(module.szModule, L"dinput.dll") == 0;
+	}
+	CloseHandle(snap);
+	return found;
+}
+
+static bool Send(const vector<KeyAction>& actions, int delayMs, int holdMs, int frameMs, bool waitForTarget, const atomic<bool>& cancel, string& error) {
+	// Turn each action into steps: a key goes down, stays down for holdMs, and
+	// delayMs passes after it comes up.  Steps with no wait between them go
+	// out together, and a cancel is checked between keys.
+	HKL layout = ForegroundLayout();
+	bool byKey = false;
+	if (frameMs > 0) {
+		// A program that uses DirectInput: each key down and each gap lasts a
+		// frame, and characters go out as keys, since DirectInput doesn't see
+		// text.  Its keys are spaced out enough already, and a game that reads
+		// messages once a frame would hold up every key.
+		holdMs = max(holdMs, frameMs);
+		delayMs = max(delayMs, frameMs);
+		byKey = true;
+		waitForTarget = false;
+	}
+	vector<KeyStep> steps;
+	for (auto& action : actions) {
+		if (action.Type == KeyAction::Char) {
+			AddChar(steps, action.Character, layout, holdMs, delayMs, byKey);
+			continue;
+		}
+		KeyCode code;
+		if (!LookupKey(action.Key, layout, code)) {
+			error = "Unknown key, or not on this keyboard layout: " + action.Key;
+			return false;
+		}
+		bool up = action.Type == KeyAction::Up;
+		vector<INPUT> inputs;
+		if (!up) {
+			AddModifiers(inputs, code.ImpliedMods, false, layout);
+		}
+		AddKey(inputs, code.VK, code.Extended, up, layout);
+		if (up) {
+			AddModifiers(inputs, code.ImpliedMods, true, layout);
+		}
+		steps.push_back({ inputs, up ? delayMs : max(delayMs, holdMs), true });
+	}
+
+	PreciseWait timer;
 	vector<INPUT> batch;
-	for (size_t i = 0; i < groups.size(); i++) {
-		if (cancel) {
+	bool startsKey = false;
+	for (size_t i = 0; i < steps.size(); i++) {
+		if (steps[i].CanStop && cancel) {
 			return true;
 		}
-		batch.insert(batch.end(), groups[i].begin(), groups[i].end());
-		if (delayMs > 0 || i + 1 == groups.size() || batch.size() >= 64) {
+		startsKey = startsKey || steps[i].CanStop;
+		batch.insert(batch.end(), steps[i].Inputs.begin(), steps[i].Inputs.end());
+		bool last = i + 1 == steps.size();
+		if (last || steps[i].WaitMs > 0 || batch.size() >= 64) {
+			// Before a key goes down, the program in front catches up
+			if (waitForTarget && startsKey) {
+				WaitForForeground();
+			}
+			startsKey = false;
 			if (!batch.empty() && SendInput((UINT)batch.size(), batch.data(), sizeof(INPUT)) == 0) {
 				error = "Windows didn't accept the keystrokes: " + LastErrorText();
 				return false;
 			}
 			batch.clear();
-			if (delayMs > 0 && i + 1 < groups.size()) {
-				Sleep(delayMs);
+			if (!last) {
+				timer.Wait(steps[i].WaitMs);
 			}
 		}
 	}
 	return true;
+}
+
+bool WinPlatform::SendKeys(const vector<KeyAction>& actions, int delayMs, int holdMs, int frameMs, const atomic<bool>& cancel, string& error) {
+	return Send(actions, delayMs, holdMs, frameMs, true, cancel, error);
+}
+
+bool WinPlatform::SendKeysNow(const vector<KeyAction>& actions, string& error) {
+	atomic<bool> never(false);
+	return Send(actions, 0, 0, 0, false, never, error);
 }
 
 bool WinPlatform::ModifiersHeld() {
