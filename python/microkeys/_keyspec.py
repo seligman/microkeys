@@ -74,6 +74,11 @@ NAMED_KEYS = (
 
 _NAMED = set(NAMED_KEYS)
 
+# Mouse buttons and wheel turns, which can be hotkeys ("ctrl+mousex1") but
+# not sent with keys; the mouse module does that
+MOUSE_TRIGGERS = ["mouseleft", "mouseright", "mousemiddle", "mousex1", "mousex2",
+                  "wheelup", "wheeldown", "wheelleft", "wheelright"]
+
 
 def primary():
     # The modifier for copy, paste, and friends: Cmd on macOS, Ctrl elsewhere
@@ -120,9 +125,37 @@ def split_combo(text):
     return [canonical(x) for x in parts]
 
 
+def remap_key(name):
+    # A key that can be remapped, or remapped to: one key, not a combination
+    # or a mouse button
+    if not isinstance(name, str):
+        raise TypeError(f"Expected a key name, got {type(name).__name__}")
+    if name.strip().lower() in MOUSE_TRIGGERS:
+        raise ValueError(f"Only keyboard keys can be remapped, not {name!r}")
+    if len(name) > 1 and "+" in name:
+        raise ValueError(f"A remap takes one key, not a combination: {name!r}")
+    key = canonical(name)
+    if len(key) > 1 and not native.is_key(key):
+        raise ValueError(f"This platform doesn't support the {key!r} key")
+    return key
+
+
+def _hotkey_part(name):
+    # A key in a hotkey, where mouse buttons are allowed too
+    low = name.strip().lower() if isinstance(name, str) else name
+    if low in MOUSE_TRIGGERS:
+        return low
+    return canonical(name)
+
+
 def parse_hotkey(text):
     # A hotkey: modifiers plus exactly one other key.  Returns (mods, key, description)
-    keys = split_combo(text)
+    if not isinstance(text, str):
+        raise TypeError(f"Expected a key combination string, got {type(text).__name__}")
+    parts = _split(text)
+    if any(len(x) == 0 for x in parts):
+        raise ValueError(f"Malformed key combination: {text!r}")
+    keys = [_hotkey_part(x) for x in parts]
     mods = 0
     key = None
     for cur in keys:
@@ -134,7 +167,9 @@ def parse_hotkey(text):
             raise ValueError(f"A hotkey has one key besides the modifiers: {text!r}")
     if key is None:
         raise ValueError(f"A hotkey needs a key besides the modifiers: {text!r}")
-    if len(key) > 1 and not native.is_key(key):
+    if key == "mouseleft" and mods == 0:
+        raise ValueError("A hotkey on the left mouse button needs a modifier, or it would take every click")
+    if len(key) > 1 and key not in MOUSE_TRIGGERS and not native.is_key(key):
         raise ValueError(f"This platform doesn't support the {key!r} key")
     return mods, key, describe(mods, key)
 

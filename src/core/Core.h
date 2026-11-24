@@ -5,6 +5,7 @@
 // Linux unit tests.
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <string>
 #include <vector>
 #include <map>
@@ -38,6 +39,7 @@ using namespace std;
 #define FIRE_WINDOW		4
 #define FIRE_TIMER		5
 #define FIRE_CLIPBOARD	6
+#define FIRE_MESSAGE	7
 
 // Window events scripts can bind
 #define WINDOW_ACTIVATE	1

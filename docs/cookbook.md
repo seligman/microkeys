@@ -296,3 +296,111 @@ from microkeys import hotkey, keys
 def type_my_ip():
     keys.type(requests.get("https://api.ipify.org", timeout=10).text)
 ```
+
+## Caps Lock as another Ctrl
+
+```python
+from microkeys import keys
+
+keys.remap("capslock", "ctrl")
+```
+
+## Mouse side buttons for back and forward
+
+```python
+from microkeys import hotkey, keys
+
+@hotkey("mousex1", when="code.exe")
+def go_back():
+    keys.press("alt+left")
+
+@hotkey("mousex2", when="code.exe")
+def go_forward():
+    keys.press("alt+right")
+```
+
+## Click a button by its picture
+
+Save a small screenshot of the button first, for example from the log window's prompt with `screen.capture((x, y, width, height)).save("C:\\pics\\connect.png")`.
+
+```python
+from microkeys import hotkey, screen, ui
+
+@hotkey("ctrl+alt+k")
+def connect():
+    found = screen.wait_for(r"C:\pics\connect.png", timeout=5, tolerance=20)
+    if found is None:
+        ui.toast("No Connect button on screen")
+        return
+    found.click()
+```
+
+## Click a link by what it says
+
+No picture needed: the text is found in the page (or read off the screen), wherever it's scrolled to.
+
+```python
+from microkeys import hotkey, screen, ui
+
+@hotkey("ctrl+alt+n")
+def next_page():
+    found = screen.wait_for_text("Next page", timeout=5)
+    if found is None:
+        ui.toast("No 'Next page' on screen")
+        return
+    found.click()
+```
+
+## Copy the text out of a picture
+
+OCR reads text from anything on screen, such as a screenshot in a chat, a video, or a scanned page.  Point at the top left of the area, press the hotkey, point at the bottom right, and press it again.
+
+```python
+from microkeys import hotkey, screen, mouse, clip, ui
+
+corner = []
+
+@hotkey("ctrl+alt+t")
+def grab_text():
+    corner.append(mouse.position())
+    if len(corner) < 2:
+        ui.show("Now point at the bottom right and press it again", seconds=3)
+        return
+    (x1, y1), (x2, y2) = corner
+    corner.clear()
+    lines = screen.read_text((min(x1, x2), min(y1, y2), abs(x2 - x1), abs(y2 - y1)))
+    clip.set("\n".join(line.text for line in lines))
+    ui.show(f"Copied {len(lines)} lines", seconds=2)
+```
+
+## Tick a box and press a button
+
+Controls are found by what they say, so this works wherever the dialog is.
+
+```python
+from microkeys import windows, controls
+
+@windows.on_open(when=windows.match(title="Terms of Service"))
+def accept(win):
+    controls.find(name="I agree*", role="checkbox", window=win).click()
+    controls.find(name="Continue", role="button", window=win).click()
+```
+
+## Send the selection to another computer
+
+Pair the machines first (**Networking** in the tray menu).
+
+```python
+from microkeys import hotkey, clip, net, ui
+
+# On the laptop
+@hotkey("ctrl+alt+c")
+def send_selection():
+    net.send("desktop", "clipboard", clip.copy_selection())
+
+# On the desktop
+@net.on("clipboard")
+def take_clipboard(text):
+    clip.set(text)
+    ui.show(f"Clipboard from {net.sender()}")
+```

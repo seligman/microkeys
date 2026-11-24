@@ -11,7 +11,12 @@ public:
 	virtual void UnregisterHotkey(int id) = 0;
 	virtual void Fire(int kind, int id, const string& extra) = 0;
 	virtual void TriggerLog(int level, const string& text) = 0;
+	// The remaps that apply to the foreground window now changed
+	virtual void SetRemaps(const vector<RemapBinding>& active) = 0;
 };
+
+// Mouse buttons and wheel turns can be hotkeys too, like "ctrl+mousex1"
+bool IsMouseTrigger(const string& key);
 
 class Triggers {
 	// Owns the current hotkeys, hotstrings, and commands, and decides which
@@ -36,6 +41,8 @@ public:
 	bool IsPendingWindow(uint64_t handle) const;
 	int FindCommand(const string& name) const;
 	bool HasHotstrings() const;
+	bool HasRemaps() const;
+	bool HasMouseHotkeys() const;
 	bool WatchesTitles() const;
 	bool HasFilters() const;
 	bool WantsWindowEvent(int event) const;
@@ -59,6 +66,7 @@ private:
 	Bindings _bindings;
 	set<int> _registered;
 	set<int> _reported;
+	vector<RemapBinding> _remaps;
 	bool _paused = false;
 	u32string _buffer;
 	uint64_t _lastActive = 0;

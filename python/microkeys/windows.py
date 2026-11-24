@@ -123,6 +123,13 @@ class Window:
         return native.get_bounds(self.handle)
 
     @property
+    def elevated(self):
+        """True if the program runs as administrator while MicroKeys doesn't.
+        Windows keeps keys and clicks from such programs; turn on **Run as
+        administrator** in the MicroKeys menu to reach them."""
+        return native.window_elevated(self.handle)
+
+    @property
     def monitor(self):
         """The index into `monitors()` of the monitor the window is mostly on."""
         return native.window_monitor(self.handle)

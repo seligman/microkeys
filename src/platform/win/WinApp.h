@@ -22,6 +22,7 @@
 #define WM_APP_UPDATE			(WM_APP + 11)
 #define WM_APP_CONSOLE			(WM_APP + 12)
 #define WM_APP_OVERLAY			(WM_APP + 13)
+#define WM_APP_ELEVATE			(WM_APP + 14)
 
 #define TIMER_RELOAD			101
 #define TIMER_BUSY_ICON			102
@@ -43,6 +44,14 @@ public:
 	vector<string> Commands;
 	DWORD UpdatedFrom = 0;
 	string UpdatedVersion;
+	DWORD ElevatedFrom = 0;
+};
+
+class RemapTarget {
+	// The key a remapped key sends; none means the key does nothing
+public:
+	UINT VK = 0;
+	bool Extended = false;
 };
 
 class WinApp : public IAppShell, public ITriggerSink {
@@ -68,11 +77,14 @@ public:
 	void UnregisterHotkey(int id) override;
 	void Fire(int kind, int id, const string& extra) override;
 	void TriggerLog(int level, const string& text) override;
+	void SetRemaps(const vector<RemapBinding>& active) override;
 
 	// Called from the static window, hook, and thread procs
 	LRESULT WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 	void OnKeyDown(const KBDLLHOOKSTRUCT* kb);
+	bool OnRemapKey(const KBDLLHOOKSTRUCT* kb, bool down);
 	void OnMouseButton();
+	bool OnMouseHotkey(UINT message, const MSLLHOOKSTRUCT* ms);
 	void OnWinEvent(DWORD event, HWND hwnd, LONG idObject, LONG idChild);
 	bool OnConsoleKey(UINT vk);
 
@@ -110,6 +122,8 @@ private:
 	bool PassAltGr(UINT mods, UINT vk);
 	bool RunAtLogin();
 	void SetRunAtLogin(bool enable);
+	void RestartElevated();
+	void ReleaseRemaps();
 	void StartHost();
 	void ShowOverlay(const string& text, int timeoutMs);
 	void WriteLogFile(const string& text);
@@ -145,6 +159,12 @@ private:
 	HWINEVENTHOOK _uncloakHook = NULL;
 	set<HWND> _knownWindows;
 	bool _clipboardListener = false;
+	map<UINT, RemapTarget> _remaps;
+	map<UINT, RemapTarget> _remapsDown;
+	set<int> _badRemaps;
+	map<int, pair<int, string>> _mouseHotkeys;
+	set<string> _mouseSwallowed;
+	bool _elevationTried = false;
 
 	mutex _logLock;
 	deque<string> _logQueue;

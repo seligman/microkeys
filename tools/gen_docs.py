@@ -19,7 +19,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 sys.path.insert(0, os.path.join(ROOT, "python"))
 
 import microkeys
-from microkeys import keys, clip, mouse, windows, ui
+from microkeys import keys, clip, mouse, windows, controls, screen, ui, net
 
 PAGES = [
     ("index.html", "Guide", os.path.join(ROOT, "docs", "guide.md")),
@@ -171,6 +171,9 @@ def module_section(title, module, names):
                     sig = signature(attr, value).replace("(self, ", "(").replace("(self)", "()")
                     out.append(f'<div class="sig">.{html.escape(sig)}</div><div class="doc">{docstring(value)}</div>')
             out.append("</div>")
+        elif isinstance(obj, list):
+            values = ", ".join(f"<code>{html.escape(str(x))}</code>" for x in obj)
+            out.append(f'<div class="sig" id="{title}.{name}">{html.escape(title)}.{html.escape(name)}</div><div class="doc"><p>{values}</p></div>')
         elif callable(obj):
             prefix = "" if module is microkeys else f"{title}."
             out.append(f'<div class="sig" id="{title}.{name}">{html.escape(prefix + signature(name, obj))}</div><div class="doc">{docstring(obj)}</div>')
@@ -184,18 +187,26 @@ def api_page():
         "<code>from microkeys import hotkey, hotstring, keys, clip</code> and so on.</p>",
         module_section("microkeys", microkeys, ["hotkey", "hotstring", "command", "every", "after", "at", "on_start", "on_reload",
                                                 "unbind", "store", "log", "sleep", "run", "open", "paste_text", "version"]),
-        module_section("keys", keys, ["press", "type", "down", "up", "hold"]),
+        module_section("keys", keys, ["press", "type", "down", "up", "hold", "remap"]),
         "<h3>Key names</h3><p>Besides single characters such as <code>a</code>, <code>7</code> or <code>/</code>:</p>",
         "<p>" + ", ".join(f"<code>{k}</code>" for k in keys.NAMED_KEYS) + "</p>",
         "<p>Also accepted: <code>control</code>, <code>option</code>, <code>win</code>, <code>cmd</code>, <code>return</code>, "
         "<code>esc</code>, <code>del</code>, <code>ins</code>, <code>pgup</code>, <code>pgdn</code>, and <code>primary</code> "
         "(Ctrl on Windows, Cmd on macOS).</p>",
+        "<p>Hotkeys can also use the mouse: "
+        + ", ".join(f"<code>{k}</code>" for k in microkeys._keyspec.MOUSE_TRIGGERS)
+        + ", as in <code>ctrl+mousex1</code>.  <code>mouseleft</code> needs a modifier.</p>",
         module_section("clip", clip, ["get", "set", "get_html", "get_rtf", "get_files", "get_image", "formats", "copy_selection",
                                       "paste_text", "save", "restore", "history", "clear_history", "on_change", "wait_for_change", "sequence"]),
         module_section("mouse", mouse, ["position", "move", "move_by", "click", "down", "up", "scroll", "drag"]),
         module_section("windows", windows, ["active", "all", "find", "find_one", "wait_for", "monitors", "app", "match", "on_activate",
                                             "on_open", "Window", "Monitor"]),
-        module_section("ui", ui, ["msgbox", "input", "choose", "toast", "show", "hide"]),
+        module_section("controls", controls, ["find", "find_all", "wait_for", "focused", "at", "Control", "ROLES"]),
+        module_section("screen", screen, ["pixel", "capture", "load", "find", "find_all", "wait_for", "wait_for_color", "find_text",
+                                          "find_all_text", "wait_for_text", "read_text", "text_languages", "Image", "Found",
+                                          "TextLine", "Word"]),
+        module_section("ui", ui, ["msgbox", "input", "choose", "choose_file", "toast", "show", "hide"]),
+        module_section("net", net, ["send", "on", "sender", "name", "machines", "NetError"]),
     ]
     return "\n".join(parts)
 

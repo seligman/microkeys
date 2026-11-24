@@ -48,6 +48,29 @@ class FakeMicrokeys(types.ModuleType):
         self.bounds = {0x101: (100, 100, 800, 600), 0x202: (0, 0, 1920, 1040), 0x303: (50, 50, 300, 500)}
         self.states = {0x101: "normal", 0x202: "maximized", 0x303: "minimized"}
         self.closed = []
+        self.elevated = False
+        self.elevated_windows = set()
+        # The simulated screen: (width, height, BGRA pixels), all one grey
+        self.screen = (64, 48, b"\x40\x40\x40\xff" * (64 * 48))
+        self.captures = []
+        # Controls: handle to info dict, plus "parent" and "text" keys
+        self.controls = {}
+        # Text: words "painted" on the simulated screen for OCR, as (text, x,
+        # y, width, height, line), and what accessibility finds, for
+        # documents and for names
+        self.screen_words = []
+        self.ocr_error = None
+        self.ocr_reads = []
+        self.ocr_languages = ["en-US"]
+        self.text_hits = {True: [], False: []}
+        self.text_searches = []
+        self.focused_control = 0
+        self.control_actions = []
+        self.released = []
+        self.file_answer = None
+        self.file_dialogs = []
+        self.advertised = []
+        self.bonjour = {}
 
     # Helpers for tests
     def log_text(self):
@@ -70,11 +93,11 @@ class FakeMicrokeys(types.ModuleType):
     def log(self, level, text):
         self.logs.append((level, text))
 
-    def configure(self, script_dir, abort_mods, abort_key, feed, check, editor):
-        self.config = (script_dir, abort_mods, abort_key, feed, check, editor)
+    def configure(self, script_dir, abort_mods, abort_key, feed, check, editor, run_elevated):
+        self.config = (script_dir, abort_mods, abort_key, feed, check, editor, run_elevated)
 
-    def set_bindings(self, hotkeys, hotstrings, commands, window_events):
-        self.bindings = (hotkeys, hotstrings, commands, window_events)
+    def set_bindings(self, hotkeys, hotstrings, commands, window_events, remaps):
+        self.bindings = (hotkeys, hotstrings, commands, window_events, remaps)
 
     def scripts_loaded(self, ok, summary):
         self.loaded.append((ok, summary))
@@ -228,6 +251,140 @@ class FakeMicrokeys(types.ModuleType):
     def window_monitor(self, handle):
         return 0
 
+    def window_elevated(self, handle):
+        return handle in self.elevated_windows
+
+    # Screen
+    def paint(self, x, y, width, height, rgb):
+        # Fill part of the simulated screen with a colour
+        w, h, pixels = self.screen
+        pixels = bytearray(pixels)
+        for row in range(y, y + height):
+            for col in range(x, x + width):
+                i = (row * w + col) * 4
+                pixels[i:i + 4] = bytes((rgb[2], rgb[1], rgb[0], 255))
+        self.screen = (w, h, bytes(pixels))
+
+    def screen_capture(self, x, y, width, height):
+        # Off the edge of the simulated screen is black
+        self.captures.append((x, y, width, height))
+        w, h, pixels = self.screen
+        black = b"\x00\x00\x00\xff"
+        rows = []
+        for row in range(y, y + height):
+            if not 0 <= row < h:
+                rows.append(black * width)
+                continue
+            left, right = max(x, 0), min(x + width, w)
+            line = pixels[(row * w + left) * 4:(row * w + right) * 4] if left < right else b""
+            rows.append(black * (min(left, x + width) - x) + line + black * (x + width - max(right, x)))
+        return b"".join(rows)
+
+    def image_decode(self, data):
+        from microkeys import _offline
+        return _offline.image_decode(data)
+
+    def image_encode(self, width, height, pixels):
+        from microkeys import _offline
+        return _offline.image_encode(width, height, pixels)
+
+    def image_find(self, width, height, pixels, needle_width, needle_height, needle, tolerance, limit):
+        from microkeys import _offline
+        return _offline.image_find(width, height, pixels, needle_width, needle_height, needle, tolerance, limit)
+
+    def text_read(self, width, height, pixels, language, scale):
+        # The words inside the last area captured, as OCR would see them
+        if self.ocr_error:
+            raise OSError(self.ocr_error)
+        x, y, w, h = self.captures[-1]
+        self.ocr_reads.append(((x, y, w, h), language, scale))
+        return [(text, wx - x, wy - y, ww, wh, line) for text, wx, wy, ww, wh, line in self.screen_words
+                if wx >= x and wy >= y and wx + ww <= x + w and wy + wh <= y + h]
+
+    def text_languages(self):
+        return list(self.ocr_languages)
+
+    # Controls
+    def add_control(self, handle, parent=0, **info):
+        base = {"name": "", "role": "pane", "automation_id": "", "class_name": "", "runtime_id": str(handle), "enabled": True,
+                "focused": False, "offscreen": False, "bounds": (0, 0, 10, 10), "window": 0x101, "has_value": False,
+                "read_only": True, "value": "", "toggle": -1, "selected": -1, "expanded": -1, "actions": [], "parent": parent, "text": None}
+        base.update(info)
+        self.controls[handle] = base
+
+    def _matches(self, info, name, role, automation_id, class_name):
+        from microkeys import windows
+        return ((not name or windows._pattern(name).fullmatch(info["name"])) and (not role or role == info["role"]) and
+                (not automation_id or automation_id == info["automation_id"]) and
+                (not class_name or windows._pattern(class_name).fullmatch(info["class_name"])))
+
+    def _descendants(self, handle):
+        for h, info in self.controls.items():
+            if info["parent"] == handle:
+                yield h
+                yield from self._descendants(h)
+
+    def control_find(self, root, window, name, role, automation_id, class_name, all):
+        if root == 0:
+            window = window or self.front
+            starts = [h for h, info in self.controls.items() if info["parent"] == 0 and info["window"] == window]
+            pool = starts + [d for h in starts for d in self._descendants(h)]
+        else:
+            pool = list(self._descendants(root))
+        found = [h for h in pool if self._matches(self.controls[h], name, role, automation_id, class_name)]
+        return found if all else found[:1]
+
+    def control_info(self, handle):
+        info = self.controls.get(handle)
+        return None if info is None else {k: v for k, v in info.items() if k not in ("parent", "text")}
+
+    def control_text(self, handle):
+        info = self.controls.get(handle)
+        if info is None:
+            return None
+        return info["text"] if info["text"] is not None else info["value"] if info["has_value"] else info["name"]
+
+    def control_do(self, handle, action, value):
+        info = self.controls.get(handle)
+        if info is None:
+            raise ValueError("That control is gone")
+        wanted = {"focus": None, "set_value": "set_value", "click": "click", "toggle": "toggle", "select": "select",
+                  "expand": "expand", "collapse": "collapse", "scroll": "scroll"}[action]
+        if wanted is not None and wanted not in info["actions"]:
+            raise ValueError(f"The control can't {action}")
+        self.control_actions.append((handle, action, value))
+        if action == "set_value":
+            info["value"] = value
+        elif action == "toggle":
+            info["toggle"] = 0 if info["toggle"] == 1 else 1
+
+    def control_related(self, handle, parent):
+        info = self.controls.get(handle)
+        if info is None:
+            return []
+        if parent:
+            return [info["parent"]] if info["parent"] else []
+        return [h for h, other in self.controls.items() if other["parent"] == handle]
+
+    def control_focused(self):
+        return self.focused_control
+
+    def control_at(self, x, y):
+        for h, info in self.controls.items():
+            bx, by, bw, bh = info["bounds"]
+            if bx <= x < bx + bw and by <= y < by + bh and not any(self.controls[c]["parent"] == h for c in self.controls):
+                return h
+        return 0
+
+    def control_release(self, handle):
+        self.released.append(handle)
+
+    def control_text_find(self, root, window, text, match_case, documents, limit):
+        self.text_searches.append((window, text, match_case, documents, limit))
+        if isinstance(self.text_hits, Exception):
+            raise self.text_hits
+        return self.text_hits[documents][:limit]
+
     # User interface
     def msgbox(self, text, title, buttons):
         self.dialogs.append(("msgbox", text, title, buttons))
@@ -247,8 +404,25 @@ class FakeMicrokeys(types.ModuleType):
     def overlay(self, text, timeout_ms):
         self.overlays.append((text, timeout_ms))
 
+    def ask_file(self, save, title, types, initial):
+        self.file_dialogs.append((save, title, types, initial))
+        return self.file_answer
+
+    # Network
+    def net_advertise(self, name, port):
+        self.advertised.append((name, port))
+
+    def net_resolve(self, name, timeout_ms):
+        return self.bonjour.get(name)
+
+    def net_browse(self, timeout_ms):
+        return list(self.bonjour)
+
     # System
     def shell_open(self, target):
         if target == "missing":
             raise OSError("The system cannot find the file specified")
         self.opened.append(target)
+
+    def is_elevated(self):
+        return self.elevated

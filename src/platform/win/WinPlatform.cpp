@@ -5,7 +5,11 @@
 #include <dwmapi.h>
 #include <shellscalingapi.h>
 #include <tlhelp32.h>
+#include <shobjidl.h>
+#include <wrl/client.h>
 #include <algorithm>
+
+using Microsoft::WRL::ComPtr;
 
 static HWND H(uint64_t handle) {
 	return (HWND)(uintptr_t)handle;
@@ -317,6 +321,7 @@ bool WinPlatform::MouseButton(const string& button, bool down, string& error) {
 		error = "Unknown mouse button: " + button;
 		return false;
 	}
+	input.mi.dwExtraInfo = MICROKEYS_INPUT_TAG;
 	if (SendInput(1, &input, sizeof(INPUT)) == 0) {
 		error = "Windows didn't accept the mouse event: " + LastErrorText();
 		return false;
@@ -329,6 +334,7 @@ void WinPlatform::MouseWheel(int clicks, bool horizontal) {
 	input.type = INPUT_MOUSE;
 	input.mi.dwFlags = horizontal ? MOUSEEVENTF_HWHEEL : MOUSEEVENTF_WHEEL;
 	input.mi.mouseData = (DWORD)(clicks * WHEEL_DELTA);
+	input.mi.dwExtraInfo = MICROKEYS_INPUT_TAG;
 	SendInput(1, &input, sizeof(INPUT));
 }
 
@@ -604,6 +610,45 @@ int WinPlatform::WindowMonitor(uint64_t handle) {
 	return 0;
 }
 
+static bool TokenElevated(HANDLE process, bool& elevated) {
+	HANDLE token = NULL;
+	if (!OpenProcessToken(process, TOKEN_QUERY, &token)) {
+		return false;
+	}
+	TOKEN_ELEVATION info = { 0 };
+	DWORD size = 0;
+	bool ok = GetTokenInformation(token, TokenElevation, &info, sizeof(info), &size) != FALSE;
+	CloseHandle(token);
+	elevated = info.TokenIsElevated != 0;
+	return ok;
+}
+
+bool WinPlatform::IsElevated() {
+	bool elevated = false;
+	return TokenElevated(GetCurrentProcess(), elevated) && elevated;
+}
+
+bool WinPlatform::IsElevatedWindow(uint64_t handle) {
+	// A program running with more rights than MicroKeys doesn't take its
+	// input (UIPI).  One that won't even let us look at its token is one.
+	DWORD pid = 0;
+	if (GetWindowThreadProcessId(H(handle), &pid) == 0) {
+		return false;
+	}
+	HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+	if (process == NULL) {
+		return GetLastError() == ERROR_ACCESS_DENIED && !IsElevated();
+	}
+	bool elevated = false;
+	bool known = TokenElevated(process, elevated);
+	DWORD err = GetLastError();
+	CloseHandle(process);
+	if (!known) {
+		return err == ERROR_ACCESS_DENIED && !IsElevated();
+	}
+	return elevated;
+}
+
 string WinPlatform::ShowMessage(const string& text, const string& title, const string& buttons) {
 	UINT type = MB_OK;
 	if (buttons == "okcancel") {
@@ -641,6 +686,52 @@ static void BringToFront(HWND hDlg) {
 	SetForegroundWindow(hDlg);
 }
 
+class PromptShift {
+	// Controls in Dialog from Below down move By pixels
+public:
+	HWND Dialog;
+	int Below;
+	int By;
+};
+
+static BOOL CALLBACK MoveDown(HWND child, LPARAM lParam) {
+	auto shift = (PromptShift*)lParam;
+	RECT rc;
+	GetWindowRect(child, &rc);
+	MapWindowPoints(NULL, shift->Dialog, (POINT*)&rc, 2);
+	if (rc.top >= shift->Below) {
+		SetWindowPos(child, NULL, rc.left, rc.top + shift->By, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+	return TRUE;
+}
+
+static void FitPrompt(HWND hDlg) {
+	// Make the prompt as tall as its text, moving the rest of the dialog down
+	HWND prompt = GetDlgItem(hDlg, IDC_PROMPT);
+	RECT rc;
+	GetWindowRect(prompt, &rc);
+	MapWindowPoints(NULL, hDlg, (POINT*)&rc, 2);
+	int len = GetWindowTextLengthW(prompt);
+	vector<wchar_t> text((size_t)len + 1);
+	GetWindowTextW(prompt, text.data(), len + 1);
+	HDC dc = GetDC(prompt);
+	HGDIOBJ old = SelectObject(dc, (HFONT)SendMessageW(prompt, WM_GETFONT, 0, 0));
+	RECT need = { 0, 0, rc.right - rc.left, 0 };
+	DrawTextW(dc, text.data(), len, &need, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX | DT_EXPANDTABS);
+	SelectObject(dc, old);
+	ReleaseDC(prompt, dc);
+	int grow = need.bottom - (rc.bottom - rc.top);
+	if (grow <= 0) {
+		return;
+	}
+	PromptShift shift = { hDlg, rc.bottom, grow };
+	EnumChildWindows(hDlg, MoveDown, (LPARAM)&shift);
+	SetWindowPos(prompt, NULL, 0, 0, rc.right - rc.left, need.bottom, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+	RECT win;
+	GetWindowRect(hDlg, &win);
+	SetWindowPos(hDlg, NULL, win.left, win.top - grow / 2, win.right - win.left, win.bottom - win.top + grow, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
 static INT_PTR CALLBACK InputProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
 	DialogData* data = (DialogData*)GetWindowLongPtrW(hDlg, DWLP_USER);
 	switch (message) {
@@ -651,6 +742,7 @@ static INT_PTR CALLBACK InputProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM
 		SetDlgItemTextW(hDlg, IDC_PROMPT, data->Prompt.c_str());
 		SetDlgItemTextW(hDlg, IDC_TEXT, data->Text.c_str());
 		SendDlgItemMessageW(hDlg, IDC_TEXT, EM_SETSEL, 0, -1);
+		FitPrompt(hDlg);
 		BringToFront(hDlg);
 		SetFocus(GetDlgItem(hDlg, IDC_TEXT));
 		return FALSE;
@@ -684,6 +776,7 @@ static INT_PTR CALLBACK ChooseProc(HWND hDlg, UINT message, WPARAM wParam, LPARA
 			SendDlgItemMessageW(hDlg, IDC_LIST, LB_ADDSTRING, 0, (LPARAM)item.c_str());
 		}
 		SendDlgItemMessageW(hDlg, IDC_LIST, LB_SETCURSEL, 0, 0);
+		FitPrompt(hDlg);
 		BringToFront(hDlg);
 		SetFocus(GetDlgItem(hDlg, IDC_LIST));
 		return FALSE;
@@ -725,6 +818,76 @@ int WinPlatform::AskChoice(const vector<string>& items, const string& prompt, co
 		return -1;
 	}
 	return data.Choice;
+}
+
+bool WinPlatform::AskFile(bool save, const string& title, const vector<FileType>& types, const string& initial, string& path) {
+	// The standard open or save dialog.  It's given a hidden owner in the
+	// middle of the screen, so it comes up there and in front.
+	HRESULT init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+	bool ok = false;
+	{
+		ComPtr<IFileDialog> dialog;
+		HRESULT hr = save ? CoCreateInstance(__uuidof(FileSaveDialog), NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)) :
+			CoCreateInstance(__uuidof(FileOpenDialog), NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+		if (SUCCEEDED(hr)) {
+			vector<wstring> names, patterns;
+			for (auto& type : types) {
+				names.push_back(Utf8ToUtf16(type.Name));
+				patterns.push_back(Utf8ToUtf16(type.Pattern));
+			}
+			vector<COMDLG_FILTERSPEC> specs;
+			for (size_t i = 0; i < names.size(); i++) {
+				specs.push_back(COMDLG_FILTERSPEC { names[i].c_str(), patterns[i].c_str() });
+			}
+			if (!specs.empty()) {
+				dialog->SetFileTypes((UINT)specs.size(), specs.data());
+				size_t dot = patterns[0].find(L"*.");
+				if (save && dot != wstring::npos && patterns[0].find_first_of(L"*?;", dot + 2) == wstring::npos) {
+					dialog->SetDefaultExtension(patterns[0].substr(dot + 2).c_str());
+				}
+			}
+			dialog->SetTitle(Utf8ToUtf16(title).c_str());
+			FILEOPENDIALOGOPTIONS options = 0;
+			dialog->GetOptions(&options);
+			options |= FOS_FORCEFILESYSTEM | (save ? FOS_OVERWRITEPROMPT : FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST);
+			dialog->SetOptions(options);
+			wstring start = Utf8ToUtf16(initial);
+			size_t slash = start.find_last_of(L"\\/");
+			if (slash != wstring::npos) {
+				ComPtr<IShellItem> folder;
+				if (SUCCEEDED(SHCreateItemFromParsingName(start.substr(0, slash).c_str(), NULL, IID_PPV_ARGS(&folder)))) {
+					dialog->SetFolder(folder.Get());
+				}
+				start = start.substr(slash + 1);
+			}
+			if (!start.empty()) {
+				dialog->SetFileName(start.c_str());
+			}
+
+			RECT work = { 0 };
+			SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+			HWND owner = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, L"Static", L"", WS_POPUP,
+				(work.left + work.right) / 2, (work.top + work.bottom) / 3, 0, 0, NULL, NULL, GetModuleHandleW(NULL), NULL);
+			if (owner != NULL) {
+				SetForegroundWindow(owner);
+			}
+			ComPtr<IShellItem> result;
+			PWSTR chosen = NULL;
+			if (SUCCEEDED(dialog->Show(owner)) && SUCCEEDED(dialog->GetResult(&result)) &&
+				SUCCEEDED(result->GetDisplayName(SIGDN_FILESYSPATH, &chosen))) {
+				path = Utf16ToUtf8(chosen);
+				CoTaskMemFree(chosen);
+				ok = true;
+			}
+			if (owner != NULL) {
+				DestroyWindow(owner);
+			}
+		}
+	}
+	if (SUCCEEDED(init)) {
+		CoUninitialize();
+	}
+	return ok;
 }
 
 void WinPlatform::Toast(const string& title, const string& text) {

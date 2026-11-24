@@ -3,6 +3,7 @@
 
 #include "../../src/core/Text.h"
 #include "../../src/core/Triggers.h"
+#include "../../src/core/Image.h"
 #include <stdio.h>
 
 static int _failures = 0;
@@ -43,6 +44,17 @@ public:
 	void TriggerLog(int level, const string& text) override {
 		Logged.push_back(text);
 	}
+
+	void SetRemaps(const vector<RemapBinding>& active) override {
+		Remaps.clear();
+		for (auto& rm : active) {
+			Remaps[rm.Source] = rm.Target;
+		}
+		RemapCalls++;
+	}
+
+	map<string, string> Remaps;
+	int RemapCalls = 0;
 };
 
 static WindowInfo Window(const string& process, const string& title) {
@@ -72,6 +84,37 @@ static HotstringBinding Hotstring(int id, const string& trigger, bool immediate 
 	ret.Trigger = Utf8ToU32(trigger);
 	ret.Immediate = immediate;
 	return ret;
+}
+
+static RemapBinding Remap(int id, const string& source, const string& target, const string& process = "") {
+	RemapBinding ret;
+	ret.ID = id;
+	ret.Source = source;
+	ret.Target = target;
+	ret.When.Process = process;
+	return ret;
+}
+
+static Bitmap Picture(int width, int height, uint32_t color) {
+	// A bitmap of one colour, given as 0xRRGGBB
+	Bitmap ret;
+	ret.Width = width;
+	ret.Height = height;
+	for (int i = 0; i < width * height; i++) {
+		ret.Pixels += (char)(color & 0xFF);
+		ret.Pixels += (char)((color >> 8) & 0xFF);
+		ret.Pixels += (char)((color >> 16) & 0xFF);
+		ret.Pixels += (char)0xFF;
+	}
+	return ret;
+}
+
+static void Paint(Bitmap& bitmap, int x, int y, uint32_t color, int alpha = 0xFF) {
+	char* px = &bitmap.Pixels[((size_t)y * bitmap.Width + x) * 4];
+	px[0] = (char)(color & 0xFF);
+	px[1] = (char)((color >> 8) & 0xFF);
+	px[2] = (char)((color >> 16) & 0xFF);
+	px[3] = (char)alpha;
 }
 
 static void Type(Triggers& triggers, const string& text, const WindowInfo& window) {
@@ -318,6 +361,138 @@ static void TestWindowEvents() {
 	CHECK(sink.Fired.empty());
 }
 
+static void TestRemaps() {
+	FakeSink sink;
+	Triggers triggers(&sink);
+	WindowInfo notepad = Window("notepad.exe", "Untitled - Notepad");
+	WindowInfo other = Window("code.exe", "main.cpp");
+
+	Bindings b;
+	b.Remaps.push_back(Remap(1, "capslock", "escape"));
+	b.Remaps.push_back(Remap(2, "f1", ""));
+	b.Remaps.push_back(Remap(3, "capslock", "ctrl", "notepad.exe"));
+	triggers.SetBindings(b, other);
+	CHECK(triggers.HasRemaps());
+	CHECK(sink.Remaps == (map<string, string>{ { "capslock", "escape" }, { "f1", "" } }));
+
+	// The filtered remap wins in its window, and gives way elsewhere
+	triggers.OnForeground(notepad);
+	CHECK(sink.Remaps["capslock"] == "ctrl");
+	int calls = sink.RemapCalls;
+	triggers.OnTitleChange(notepad);
+	CHECK(sink.RemapCalls == calls);
+	triggers.OnForeground(other);
+	CHECK(sink.Remaps["capslock"] == "escape");
+
+	// Paused, no key is remapped
+	triggers.SetPaused(true, other);
+	CHECK(sink.Remaps.empty());
+	triggers.SetPaused(false, other);
+	CHECK(sink.Remaps.size() == 2);
+
+	Bindings none;
+	triggers.SetBindings(none, other);
+	CHECK(sink.Remaps.empty());
+	CHECK(!triggers.HasRemaps());
+}
+
+static void TestMouseHotkeys() {
+	CHECK(IsMouseTrigger("mousex1") && IsMouseTrigger("wheelup"));
+	CHECK(!IsMouseTrigger("left") && !IsMouseTrigger("mouse"));
+	FakeSink sink;
+	Triggers triggers(&sink);
+	Bindings b;
+	b.Hotkeys.push_back(Hotkey(1, MOD_KEY_CTRL, "z"));
+	triggers.SetBindings(b, Window("a.exe", ""));
+	CHECK(!triggers.HasMouseHotkeys());
+	b.Hotkeys.push_back(Hotkey(2, MOD_KEY_CTRL, "mousemiddle"));
+	triggers.SetBindings(b, Window("a.exe", ""));
+	CHECK(triggers.HasMouseHotkeys());
+	CHECK(triggers.Registered() == set<int>({1, 2}));
+}
+
+static void TestImages() {
+	Bitmap screen = Picture(20, 10, 0x102030);
+	Bitmap needle = Picture(3, 2, 0x102030);
+	Paint(needle, 1, 0, 0xFF0000);
+	vector<pair<int, int>> found;
+	CHECK(!FindImage(screen, needle, 0, 10, found));
+
+	// Two copies, found top to bottom, left to right
+	Paint(screen, 15, 7, 0xFF0000);
+	Paint(screen, 5, 2, 0xFF0000);
+	CHECK(FindImage(screen, needle, 0, 10, found));
+	CHECK(found == (vector<pair<int, int>>{ { 4, 2 }, { 14, 7 } }));
+	CHECK(FindImage(screen, needle, 0, 1, found) && found.size() == 1);
+
+	// Close colours match within the tolerance
+	Paint(screen, 15, 7, 0xF80406);
+	CHECK(FindImage(screen, needle, 0, 10, found) && found.size() == 1);
+	CHECK(FindImage(screen, needle, 8, 10, found) && found.size() == 2);
+
+	// Transparent needle pixels match anything
+	Bitmap ring = Picture(3, 3, 0x102030);
+	Paint(ring, 1, 1, 0x00FF00, 0);
+	Paint(screen, 1, 1, 0x00FF00);
+	CHECK(FindImage(screen, ring, 0, 10, found) && found[0] == make_pair(0, 0));
+
+	// A needle bigger than the screen, or an empty one, isn't found
+	CHECK(!FindImage(needle, screen, 0, 10, found));
+	CHECK(!FindImage(screen, Bitmap(), 0, 10, found));
+}
+
+static uint32_t ColorAt(const Bitmap& bitmap, int x, int y) {
+	const uint8_t* px = (const uint8_t*)&bitmap.Pixels[((size_t)y * bitmap.Width + x) * 4];
+	return (uint32_t)px[2] << 16 | (uint32_t)px[1] << 8 | px[0];
+}
+
+static void Line(Bitmap& bitmap, int x1, int y1, int x2, int y2, uint32_t color) {
+	for (int y = y1; y <= y2; y++) {
+		for (int x = x1; x <= x2; x++) {
+			Paint(bitmap, x, y, color);
+		}
+	}
+}
+
+static void TestOcrPrep() {
+	// A box with a letter's crossbar and stem inside it, an underline, a
+	// thick bar, and a long line that isn't part of a box
+	Bitmap page = Picture(80, 60, 0xFFFFFF);
+	Line(page, 10, 5, 49, 5, 0x767676);
+	Line(page, 10, 24, 49, 24, 0x767676);
+	Line(page, 10, 5, 10, 24, 0x767676);
+	Line(page, 49, 5, 49, 24, 0x767676);
+	Line(page, 20, 14, 29, 14, 0);
+	Line(page, 35, 10, 35, 18, 0);
+	Line(page, 10, 32, 45, 33, 0x0000EE);
+	Line(page, 10, 44, 60, 47, 0);
+	Line(page, 70, 2, 70, 57, 0);
+	// A focused text box: a 2 pixel ring around its 1 pixel border
+	Line(page, 12, 37, 60, 38, 0x101010);
+	Line(page, 12, 39, 60, 39, 0x767676);
+	Bitmap clean = PrepareForOcr(page, 1);
+	CHECK(clean.Width == 80 && clean.Height == 60);
+	// The box and the underline are gone
+	CHECK(ColorAt(clean, 30, 5) == 0xFFFFFF && ColorAt(clean, 30, 24) == 0xFFFFFF);
+	CHECK(ColorAt(clean, 10, 15) == 0xFFFFFF && ColorAt(clean, 49, 15) == 0xFFFFFF);
+	CHECK(ColorAt(clean, 20, 32) == 0xFFFFFF && ColorAt(clean, 20, 33) == 0xFFFFFF);
+	// Letters, the thick bar, and the lone line stay
+	CHECK(ColorAt(clean, 25, 14) == 0 && ColorAt(clean, 35, 14) == 0);
+	CHECK(ColorAt(clean, 30, 45) == 0 && ColorAt(clean, 30, 46) == 0);
+	CHECK(ColorAt(clean, 70, 30) == 0);
+	CHECK(ColorAt(clean, 30, 37) == 0xFFFFFF && ColorAt(clean, 30, 38) == 0xFFFFFF && ColorAt(clean, 30, 39) == 0xFFFFFF);
+
+	// Scaled up, blending between pixels
+	Bitmap two = Picture(2, 1, 0);
+	Paint(two, 1, 0, 0xFFFFFF);
+	Bitmap big = PrepareForOcr(two, 2);
+	CHECK(big.Width == 4 && big.Height == 2);
+	CHECK(ColorAt(big, 0, 0) == 0 && ColorAt(big, 3, 1) == 0xFFFFFF);
+	CHECK(ColorAt(big, 1, 0) == 0x404040 && ColorAt(big, 2, 1) == 0xBFBFBF);
+	CHECK(PrepareForOcr(page, 2).Width == 160);
+	CHECK(PrepareForOcr(Bitmap(), 2).Width == 0);
+}
+
 int RunUpdateCoreTests(int& checks);
 
 int main() {
@@ -326,6 +501,10 @@ int main() {
 	TestHotstrings();
 	TestCommands();
 	TestWindowEvents();
+	TestRemaps();
+	TestMouseHotkeys();
+	TestImages();
+	TestOcrPrep();
 	_failures += RunUpdateCoreTests(_checks);
 	printf("%d checks, %d failures\n", _checks, _failures);
 	return _failures == 0 ? 0 : 1;

@@ -7,6 +7,20 @@
 
 static const u32string _endChars = U" \n\t.,;:!?-()[]{}\"'/\\";
 
+static const char* _mouseTriggers[] = {
+	"mouseleft", "mouseright", "mousemiddle", "mousex1", "mousex2",
+	"wheelup", "wheeldown", "wheelleft", "wheelright",
+};
+
+bool IsMouseTrigger(const string& key) {
+	for (auto name : _mouseTriggers) {
+		if (key == name) {
+			return true;
+		}
+	}
+	return false;
+}
+
 bool WindowFilter::IsEmpty() const {
 	// True when this filter applies everywhere
 	return Process.empty() && Title.empty() && ClassName.empty();
@@ -79,11 +93,15 @@ void Triggers::SetBindings(const Bindings& bindings, const WindowInfo& foregroun
 }
 
 void Triggers::Clear() {
-	// Unregister every hotkey we hold
+	// Unregister every hotkey we hold, and drop the remaps
 	for (int id : _registered) {
 		_sink->UnregisterHotkey(id);
 	}
 	_registered.clear();
+	if (!_remaps.empty()) {
+		_remaps.clear();
+		_sink->SetRemaps(_remaps);
+	}
 	_bindings = Bindings();
 	_buffer.clear();
 	_pending.clear();
@@ -137,6 +155,36 @@ void Triggers::Refresh(const WindowInfo& foreground) {
 	set<int> wanted;
 	for (auto& cur : chosen) {
 		wanted.insert(cur.second->ID);
+	}
+
+	// Remaps follow the same rule, one per key
+	map<string, const RemapBinding*> remaps;
+	if (!_paused) {
+		for (auto& rm : _bindings.Remaps) {
+			auto existing = remaps.find(rm.Source);
+			if (rm.When.IsEmpty()) {
+				if (existing == remaps.end()) {
+					remaps[rm.Source] = &rm;
+				}
+			}
+			else if (rm.When.Matches(foreground)) {
+				if (existing == remaps.end() || existing->second->When.IsEmpty()) {
+					remaps[rm.Source] = &rm;
+				}
+			}
+		}
+	}
+	vector<RemapBinding> active;
+	for (auto& cur : remaps) {
+		active.push_back(*cur.second);
+	}
+	bool same = active.size() == _remaps.size();
+	for (size_t i = 0; same && i < active.size(); i++) {
+		same = active[i].ID == _remaps[i].ID;
+	}
+	if (!same) {
+		_remaps = active;
+		_sink->SetRemaps(_remaps);
 	}
 
 	// Release first, since the same key may move to a different ID
@@ -347,10 +395,28 @@ bool Triggers::HasHotstrings() const {
 	return !_bindings.Hotstrings.empty();
 }
 
+bool Triggers::HasRemaps() const {
+	return !_bindings.Remaps.empty();
+}
+
+bool Triggers::HasMouseHotkeys() const {
+	for (auto& hk : _bindings.Hotkeys) {
+		if (IsMouseTrigger(hk.Key)) {
+			return true;
+		}
+	}
+	return false;
+}
+
 bool Triggers::WatchesTitles() const {
 	// Only then is it worth following title changes
 	for (auto& hk : _bindings.Hotkeys) {
 		if (!hk.When.Title.empty()) {
+			return true;
+		}
+	}
+	for (auto& rm : _bindings.Remaps) {
+		if (!rm.When.Title.empty()) {
 			return true;
 		}
 	}
@@ -376,6 +442,11 @@ bool Triggers::HasFilters() const {
 	}
 	for (auto& hs : _bindings.Hotstrings) {
 		if (!hs.When.IsEmpty()) {
+			return true;
+		}
+	}
+	for (auto& rm : _bindings.Remaps) {
+		if (!rm.When.IsEmpty()) {
 			return true;
 		}
 	}

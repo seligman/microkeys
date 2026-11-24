@@ -1,6 +1,7 @@
 #include "PythonInclude.h"
 #include "ScriptHost.h"
 #include "Text.h"
+#include "Image.h"
 #include "version.h"
 
 // The _microkeys module: the thin layer between the microkeys Python package
@@ -89,7 +90,8 @@ static PyObject* mk_configure(PyObject* self, PyObject* args) {
 	const char* feed;
 	int check;
 	const char* editor;
-	if (!PyArg_ParseTuple(args, "sissps", &scriptDir, &config.AbortMods, &abortKey, &feed, &check, &editor)) {
+	int elevated;
+	if (!PyArg_ParseTuple(args, "sisspsp", &scriptDir, &config.AbortMods, &abortKey, &feed, &check, &editor, &elevated)) {
 		return NULL;
 	}
 	config.ScriptDir = scriptDir;
@@ -97,6 +99,7 @@ static PyObject* mk_configure(PyObject* self, PyObject* args) {
 	config.UpdateFeed = feed;
 	config.CheckUpdates = check != 0;
 	config.Editor = editor;
+	config.RunElevated = elevated != 0;
 	HOST->Shell->Configure(config);
 	Py_RETURN_NONE;
 }
@@ -106,11 +109,14 @@ static PyObject* mk_set_bindings(PyObject* self, PyObject* args) {
 	// Hotstrings: (id, trigger, immediate, case_sensitive, process, title, class)
 	// Commands:   (id, name)
 	// Window events: (id, event, process, title, class)
+	// Remaps:     (id, key, target, process, title, class)
 	PyObject* hotkeys;
 	PyObject* hotstrings;
 	PyObject* commands;
 	PyObject* events;
-	if (!PyArg_ParseTuple(args, "O!O!O!O!", &PyList_Type, &hotkeys, &PyList_Type, &hotstrings, &PyList_Type, &commands, &PyList_Type, &events)) {
+	PyObject* remaps;
+	if (!PyArg_ParseTuple(args, "O!O!O!O!O!", &PyList_Type, &hotkeys, &PyList_Type, &hotstrings, &PyList_Type, &commands,
+		&PyList_Type, &events, &PyList_Type, &remaps)) {
 		return NULL;
 	}
 	Bindings bindings;
@@ -155,6 +161,17 @@ static PyObject* mk_set_bindings(PyObject* self, PyObject* args) {
 		}
 		ReadFilter(process, title, cls, ev.When);
 		bindings.WindowEvents.push_back(ev);
+	}
+	for (Py_ssize_t i = 0; i < PyList_GET_SIZE(remaps); i++) {
+		RemapBinding rm;
+		const char *key, *target, *process, *title, *cls;
+		if (!PyArg_ParseTuple(PyList_GET_ITEM(remaps, i), "isssss", &rm.ID, &key, &target, &process, &title, &cls)) {
+			return NULL;
+		}
+		rm.Source = key;
+		rm.Target = target;
+		ReadFilter(process, title, cls, rm.When);
+		bindings.Remaps.push_back(rm);
 	}
 	HOST->Shell->SetBindings(bindings);
 	Py_RETURN_NONE;
@@ -629,6 +646,390 @@ static PyObject* mk_window_monitor(PyObject* self, PyObject* args) {
 	return PyLong_FromLong(PLAT->WindowMonitor(handle));
 }
 
+static PyObject* mk_window_elevated(PyObject* self, PyObject* args) {
+	unsigned long long handle;
+	if (!PyArg_ParseTuple(args, "K", &handle)) {
+		return NULL;
+	}
+	return PyBool_FromLong(PLAT->IsElevatedWindow(handle));
+}
+
+static PyObject* mk_screen_capture(PyObject* self, PyObject* args) {
+	// The pixels of part of the screen, four bytes each
+	ScreenRect rect;
+	if (!PyArg_ParseTuple(args, "iiii", &rect.X, &rect.Y, &rect.Width, &rect.Height)) {
+		return NULL;
+	}
+	Bitmap bitmap;
+	string error;
+	bool ok;
+	Py_BEGIN_ALLOW_THREADS
+	ok = PLAT->CaptureScreen(rect, bitmap, error);
+	Py_END_ALLOW_THREADS
+	if (!ok) {
+		PyErr_SetString(PyExc_OSError, error.c_str());
+		return NULL;
+	}
+	return PyBytes_FromStringAndSize(bitmap.Pixels.data(), (Py_ssize_t)bitmap.Pixels.size());
+}
+
+static PyObject* mk_image_decode(PyObject* self, PyObject* args) {
+	const char* data;
+	Py_ssize_t len;
+	if (!PyArg_ParseTuple(args, "y#", &data, &len)) {
+		return NULL;
+	}
+	Bitmap bitmap;
+	string error;
+	bool ok;
+	string bytes(data, len);
+	Py_BEGIN_ALLOW_THREADS
+	ok = PLAT->DecodeImage(bytes, bitmap, error);
+	Py_END_ALLOW_THREADS
+	if (!ok) {
+		PyErr_SetString(PyExc_ValueError, error.c_str());
+		return NULL;
+	}
+	return Py_BuildValue("(iiy#)", bitmap.Width, bitmap.Height, bitmap.Pixels.data(), (Py_ssize_t)bitmap.Pixels.size());
+}
+
+static PyObject* mk_image_encode(PyObject* self, PyObject* args) {
+	Bitmap bitmap;
+	const char* data;
+	Py_ssize_t len;
+	if (!PyArg_ParseTuple(args, "iiy#", &bitmap.Width, &bitmap.Height, &data, &len)) {
+		return NULL;
+	}
+	if (bitmap.Width <= 0 || bitmap.Height <= 0 || (size_t)len != (size_t)bitmap.Width * bitmap.Height * 4) {
+		PyErr_SetString(PyExc_ValueError, "The pixels don't fit the size");
+		return NULL;
+	}
+	bitmap.Pixels.assign(data, len);
+	string png, error;
+	bool ok;
+	Py_BEGIN_ALLOW_THREADS
+	ok = PLAT->EncodePng(bitmap, png, error);
+	Py_END_ALLOW_THREADS
+	if (!ok) {
+		PyErr_SetString(PyExc_ValueError, error.c_str());
+		return NULL;
+	}
+	return PyBytes_FromStringAndSize(png.data(), (Py_ssize_t)png.size());
+}
+
+static PyObject* mk_image_find(PyObject* self, PyObject* args) {
+	// Where one image appears in another, as a list of (x, y)
+	Bitmap haystack, needle;
+	const char *hay, *pins;
+	Py_ssize_t hayLen, pinsLen;
+	int tolerance, limit;
+	if (!PyArg_ParseTuple(args, "iiy#iiy#ii", &haystack.Width, &haystack.Height, &hay, &hayLen,
+		&needle.Width, &needle.Height, &pins, &pinsLen, &tolerance, &limit)) {
+		return NULL;
+	}
+	haystack.Pixels.assign(hay, hayLen);
+	needle.Pixels.assign(pins, pinsLen);
+	vector<pair<int, int>> found;
+	Py_BEGIN_ALLOW_THREADS
+	FindImage(haystack, needle, tolerance, limit > 0 ? (size_t)limit : 0, found);
+	Py_END_ALLOW_THREADS
+	PyObject* ret = PyList_New(0);
+	for (auto& cur : found) {
+		PyObject* item = Py_BuildValue("(ii)", cur.first, cur.second);
+		if (item == NULL) {
+			Py_DECREF(ret);
+			return NULL;
+		}
+		PyList_Append(ret, item);
+		Py_DECREF(item);
+	}
+	return ret;
+}
+
+static PyObject* mk_text_read(PyObject* self, PyObject* args) {
+	// The words OCR reads in an image, as (text, x, y, width, height, line),
+	// scaling it up first for small text
+	Bitmap bitmap;
+	const char *data, *language;
+	Py_ssize_t len;
+	int scale;
+	if (!PyArg_ParseTuple(args, "iiy#si", &bitmap.Width, &bitmap.Height, &data, &len, &language, &scale)) {
+		return NULL;
+	}
+	if (bitmap.Width <= 0 || bitmap.Height <= 0 || (size_t)len != (size_t)bitmap.Width * bitmap.Height * 4) {
+		PyErr_SetString(PyExc_ValueError, "The pixels don't fit the size");
+		return NULL;
+	}
+	bitmap.Pixels.assign(data, len);
+	string lang = language, error;
+	vector<TextWord> words;
+	bool ok;
+	{
+		NativeWait wait;
+		Py_BEGIN_ALLOW_THREADS
+		ok = PLAT->ReadText(bitmap, lang, scale, words, error);
+		Py_END_ALLOW_THREADS
+	}
+	if (RaiseIfCancelled()) {
+		return NULL;
+	}
+	if (!ok) {
+		PyErr_SetString(PyExc_OSError, error.c_str());
+		return NULL;
+	}
+	PyObject* ret = PyList_New(0);
+	for (auto& cur : words) {
+		PyObject* text = Str(cur.Text);
+		PyObject* item = text == NULL ? NULL : Py_BuildValue("(Oiiiii)", text, cur.Bounds.X, cur.Bounds.Y, cur.Bounds.Width, cur.Bounds.Height, cur.Line);
+		Py_XDECREF(text);
+		if (item == NULL) {
+			Py_DECREF(ret);
+			return NULL;
+		}
+		PyList_Append(ret, item);
+		Py_DECREF(item);
+	}
+	return ret;
+}
+
+static PyObject* mk_text_languages(PyObject* self, PyObject* args) {
+	vector<string> tags;
+	Py_BEGIN_ALLOW_THREADS
+	tags = PLAT->TextLanguages();
+	Py_END_ALLOW_THREADS
+	return StrList(tags);
+}
+
+static PyObject* HandleList(const vector<uint64_t>& handles) {
+	PyObject* ret = PyList_New(0);
+	for (auto handle : handles) {
+		PyObject* item = PyLong_FromUnsignedLongLong(handle);
+		if (item == NULL) {
+			Py_DECREF(ret);
+			return NULL;
+		}
+		PyList_Append(ret, item);
+		Py_DECREF(item);
+	}
+	return ret;
+}
+
+static PyObject* mk_control_find(PyObject* self, PyObject* args) {
+	// Controls under root, or under the window (0 for the one in front)
+	unsigned long long root, window;
+	ControlQuery query;
+	const char *name, *role, *id, *cls;
+	int all;
+	if (!PyArg_ParseTuple(args, "KKssssp", &root, &window, &name, &role, &id, &cls, &all)) {
+		return NULL;
+	}
+	query.Name = name;
+	query.Role = role;
+	query.AutomationId = id;
+	query.ClassName = cls;
+	vector<uint64_t> found;
+	string error;
+	bool ok;
+	{
+		NativeWait wait;
+		Py_BEGIN_ALLOW_THREADS
+		ok = PLAT->FindControls(root, window, query, all != 0, found, error);
+		Py_END_ALLOW_THREADS
+	}
+	if (RaiseIfCancelled()) {
+		for (auto handle : found) {
+			PLAT->ReleaseControl(handle);
+		}
+		return NULL;
+	}
+	if (!ok) {
+		PyErr_SetString(PyExc_OSError, error.c_str());
+		return NULL;
+	}
+	return HandleList(found);
+}
+
+static PyObject* mk_control_text_find(PyObject* self, PyObject* args) {
+	// Text on screen found through accessibility, as (in_document, rects,
+	// text, context, name), each rect (x, y, width, height)
+	unsigned long long root, window;
+	const char* text;
+	int matchCase, documents, limit;
+	if (!PyArg_ParseTuple(args, "KKsppi", &root, &window, &text, &matchCase, &documents, &limit)) {
+		return NULL;
+	}
+	vector<TextMatch> found;
+	string error;
+	bool ok;
+	{
+		NativeWait wait;
+		Py_BEGIN_ALLOW_THREADS
+		ok = PLAT->FindControlText(root, window, text, matchCase != 0, documents != 0, limit > 0 ? (size_t)limit : 0, found, error);
+		Py_END_ALLOW_THREADS
+	}
+	if (RaiseIfCancelled()) {
+		return NULL;
+	}
+	if (!ok) {
+		PyErr_SetString(PyExc_OSError, error.c_str());
+		return NULL;
+	}
+	PyObject* ret = PyList_New(0);
+	for (auto& cur : found) {
+		PyObject* rects = PyList_New(0);
+		for (auto& rect : cur.Rects) {
+			PyObject* one = Py_BuildValue("(iiii)", rect.X, rect.Y, rect.Width, rect.Height);
+			if (one != NULL) {
+				PyList_Append(rects, one);
+				Py_DECREF(one);
+			}
+		}
+		PyObject* text = Str(cur.Text);
+		PyObject* context = Str(cur.Context);
+		PyObject* name = Str(cur.Name);
+		PyObject* item = NULL;
+		if (text && context && name) {
+			item = Py_BuildValue("(OOOOO)", cur.InDocument ? Py_True : Py_False, rects, text, context, name);
+		}
+		Py_DECREF(rects);
+		Py_XDECREF(text);
+		Py_XDECREF(context);
+		Py_XDECREF(name);
+		if (item == NULL) {
+			Py_DECREF(ret);
+			return NULL;
+		}
+		PyList_Append(ret, item);
+		Py_DECREF(item);
+	}
+	return ret;
+}
+
+static PyObject* mk_control_info(PyObject* self, PyObject* args) {
+	unsigned long long handle;
+	if (!PyArg_ParseTuple(args, "K", &handle)) {
+		return NULL;
+	}
+	ControlInfo info;
+	bool ok;
+	Py_BEGIN_ALLOW_THREADS
+	ok = PLAT->GetControlInfo(handle, info);
+	Py_END_ALLOW_THREADS
+	if (!ok) {
+		Py_RETURN_NONE;
+	}
+	PyObject* actions = StrList(info.Actions);
+	PyObject* name = Str(info.Name);
+	PyObject* role = Str(info.Role);
+	PyObject* id = Str(info.AutomationId);
+	PyObject* cls = Str(info.ClassName);
+	PyObject* runtime = Str(info.RuntimeId);
+	PyObject* value = Str(info.Value);
+	PyObject* ret = NULL;
+	if (actions && name && role && id && cls && runtime && value) {
+		ret = Py_BuildValue("{s:O,s:O,s:O,s:O,s:O,s:O,s:O,s:O,s:(iiii),s:K,s:O,s:O,s:O,s:i,s:i,s:i,s:O}",
+			"name", name, "role", role, "automation_id", id, "class_name", cls, "runtime_id", runtime,
+			"enabled", info.Enabled ? Py_True : Py_False, "focused", info.Focused ? Py_True : Py_False,
+			"offscreen", info.Offscreen ? Py_True : Py_False,
+			"bounds", info.Bounds.X, info.Bounds.Y, info.Bounds.Width, info.Bounds.Height,
+			"window", (unsigned long long)info.Window,
+			"has_value", info.HasValue ? Py_True : Py_False, "read_only", info.ReadOnly ? Py_True : Py_False, "value", value,
+			"toggle", info.Toggle, "selected", info.Selected, "expanded", info.Expanded, "actions", actions);
+	}
+	Py_XDECREF(actions);
+	Py_XDECREF(name);
+	Py_XDECREF(role);
+	Py_XDECREF(id);
+	Py_XDECREF(cls);
+	Py_XDECREF(runtime);
+	Py_XDECREF(value);
+	return ret;
+}
+
+static PyObject* mk_control_text(PyObject* self, PyObject* args) {
+	unsigned long long handle;
+	if (!PyArg_ParseTuple(args, "K", &handle)) {
+		return NULL;
+	}
+	string text;
+	bool ok;
+	Py_BEGIN_ALLOW_THREADS
+	ok = PLAT->GetControlText(handle, text);
+	Py_END_ALLOW_THREADS
+	if (!ok) {
+		Py_RETURN_NONE;
+	}
+	return Str(text);
+}
+
+static PyObject* mk_control_do(PyObject* self, PyObject* args) {
+	// Click, toggle, set the value of, or otherwise act on a control
+	unsigned long long handle;
+	const char *action, *value;
+	if (!PyArg_ParseTuple(args, "Kss", &handle, &action, &value)) {
+		return NULL;
+	}
+	string error;
+	bool ok;
+	{
+		NativeWait wait;
+		Py_BEGIN_ALLOW_THREADS
+		ok = PLAT->ControlAction(handle, action, value, error);
+		Py_END_ALLOW_THREADS
+	}
+	if (RaiseIfCancelled()) {
+		return NULL;
+	}
+	if (!ok) {
+		PyErr_SetString(PyExc_ValueError, error.c_str());
+		return NULL;
+	}
+	Py_RETURN_NONE;
+}
+
+static PyObject* mk_control_related(PyObject* self, PyObject* args) {
+	// The parent (a list of one, or none) or the children
+	unsigned long long handle;
+	int parent;
+	if (!PyArg_ParseTuple(args, "Kp", &handle, &parent)) {
+		return NULL;
+	}
+	vector<uint64_t> found;
+	Py_BEGIN_ALLOW_THREADS
+	found = PLAT->RelatedControls(handle, parent != 0);
+	Py_END_ALLOW_THREADS
+	return HandleList(found);
+}
+
+static PyObject* mk_control_focused(PyObject* self, PyObject* args) {
+	uint64_t handle;
+	Py_BEGIN_ALLOW_THREADS
+	handle = PLAT->FocusedControl();
+	Py_END_ALLOW_THREADS
+	return PyLong_FromUnsignedLongLong(handle);
+}
+
+static PyObject* mk_control_at(PyObject* self, PyObject* args) {
+	int x, y;
+	if (!PyArg_ParseTuple(args, "ii", &x, &y)) {
+		return NULL;
+	}
+	uint64_t handle;
+	Py_BEGIN_ALLOW_THREADS
+	handle = PLAT->ControlAt(x, y);
+	Py_END_ALLOW_THREADS
+	return PyLong_FromUnsignedLongLong(handle);
+}
+
+static PyObject* mk_control_release(PyObject* self, PyObject* args) {
+	unsigned long long handle;
+	if (!PyArg_ParseTuple(args, "K", &handle)) {
+		return NULL;
+	}
+	PLAT->ReleaseControl(handle);
+	Py_RETURN_NONE;
+}
+
 static PyObject* mk_msgbox(PyObject* self, PyObject* args) {
 	const char *text, *title, *buttons;
 	if (!PyArg_ParseTuple(args, "sss", &text, &title, &buttons)) {
@@ -715,6 +1116,110 @@ static PyObject* mk_overlay(PyObject* self, PyObject* args) {
 	Py_RETURN_NONE;
 }
 
+static PyObject* mk_ask_file(PyObject* self, PyObject* args) {
+	// types: a list of (description, pattern)
+	int save;
+	const char *title, *initial;
+	PyObject* list;
+	if (!PyArg_ParseTuple(args, "psO!s", &save, &title, &PyList_Type, &list, &initial)) {
+		return NULL;
+	}
+	vector<FileType> types;
+	for (Py_ssize_t i = 0; i < PyList_GET_SIZE(list); i++) {
+		FileType type;
+		const char *name, *pattern;
+		if (!PyArg_ParseTuple(PyList_GET_ITEM(list, i), "ss", &name, &pattern)) {
+			return NULL;
+		}
+		type.Name = name;
+		type.Pattern = pattern;
+		types.push_back(type);
+	}
+	string path;
+	bool ok;
+	{
+		NativeWait wait;
+		Py_BEGIN_ALLOW_THREADS
+		ok = PLAT->AskFile(save != 0, title, types, initial, path);
+		Py_END_ALLOW_THREADS
+	}
+	if (RaiseIfCancelled()) {
+		return NULL;
+	}
+	if (!ok) {
+		Py_RETURN_NONE;
+	}
+	return Str(path);
+}
+
+static PyObject* mk_net_advertise(PyObject* self, PyObject* args) {
+	const char* name;
+	int port;
+	if (!PyArg_ParseTuple(args, "si", &name, &port)) {
+		return NULL;
+	}
+	string error;
+	bool ok;
+	Py_BEGIN_ALLOW_THREADS
+	ok = PLAT->Advertise(name, port, error);
+	Py_END_ALLOW_THREADS
+	if (!ok) {
+		PyErr_SetString(PyExc_ValueError, error.c_str());
+		return NULL;
+	}
+	Py_RETURN_NONE;
+}
+
+static PyObject* mk_net_resolve(PyObject* self, PyObject* args) {
+	// A MicroKeys machine's address on the local network, or None
+	const char* name;
+	int timeoutMs;
+	if (!PyArg_ParseTuple(args, "si", &name, &timeoutMs)) {
+		return NULL;
+	}
+	string host;
+	int port = 0;
+	bool ok;
+	{
+		NativeWait wait;
+		Py_BEGIN_ALLOW_THREADS
+		ok = PLAT->Resolve(name, timeoutMs, host, port);
+		Py_END_ALLOW_THREADS
+	}
+	if (RaiseIfCancelled()) {
+		return NULL;
+	}
+	if (!ok) {
+		Py_RETURN_NONE;
+	}
+	PyObject* text = Str(host);
+	PyObject* ret = text ? Py_BuildValue("(Oi)", text, port) : NULL;
+	Py_XDECREF(text);
+	return ret;
+}
+
+static PyObject* mk_net_browse(PyObject* self, PyObject* args) {
+	int timeoutMs;
+	if (!PyArg_ParseTuple(args, "i", &timeoutMs)) {
+		return NULL;
+	}
+	vector<string> names;
+	{
+		NativeWait wait;
+		Py_BEGIN_ALLOW_THREADS
+		names = PLAT->Browse(timeoutMs);
+		Py_END_ALLOW_THREADS
+	}
+	if (RaiseIfCancelled()) {
+		return NULL;
+	}
+	return StrList(names);
+}
+
+static PyObject* mk_is_elevated(PyObject* self, PyObject* args) {
+	return PyBool_FromLong(PLAT->IsElevated());
+}
+
 static PyObject* mk_shell_open(PyObject* self, PyObject* args) {
 	const char* target;
 	if (!PyArg_ParseTuple(args, "s", &target)) {
@@ -777,12 +1282,33 @@ static PyMethodDef _methods[] = {
 	{ "close_window", mk_close_window, METH_VARARGS, NULL },
 	{ "monitors", mk_monitors, METH_NOARGS, NULL },
 	{ "window_monitor", mk_window_monitor, METH_VARARGS, NULL },
+	{ "window_elevated", mk_window_elevated, METH_VARARGS, NULL },
+	{ "screen_capture", mk_screen_capture, METH_VARARGS, NULL },
+	{ "image_decode", mk_image_decode, METH_VARARGS, NULL },
+	{ "image_encode", mk_image_encode, METH_VARARGS, NULL },
+	{ "image_find", mk_image_find, METH_VARARGS, NULL },
+	{ "text_read", mk_text_read, METH_VARARGS, NULL },
+	{ "text_languages", mk_text_languages, METH_NOARGS, NULL },
+	{ "control_find", mk_control_find, METH_VARARGS, NULL },
+	{ "control_info", mk_control_info, METH_VARARGS, NULL },
+	{ "control_text", mk_control_text, METH_VARARGS, NULL },
+	{ "control_do", mk_control_do, METH_VARARGS, NULL },
+	{ "control_related", mk_control_related, METH_VARARGS, NULL },
+	{ "control_focused", mk_control_focused, METH_NOARGS, NULL },
+	{ "control_at", mk_control_at, METH_VARARGS, NULL },
+	{ "control_release", mk_control_release, METH_VARARGS, NULL },
+	{ "control_text_find", mk_control_text_find, METH_VARARGS, NULL },
 	{ "msgbox", mk_msgbox, METH_VARARGS, NULL },
 	{ "ask_text", mk_ask_text, METH_VARARGS, NULL },
 	{ "ask_choice", mk_ask_choice, METH_VARARGS, NULL },
 	{ "toast", mk_toast, METH_VARARGS, NULL },
 	{ "overlay", mk_overlay, METH_VARARGS, NULL },
+	{ "ask_file", mk_ask_file, METH_VARARGS, NULL },
+	{ "net_advertise", mk_net_advertise, METH_VARARGS, NULL },
+	{ "net_resolve", mk_net_resolve, METH_VARARGS, NULL },
+	{ "net_browse", mk_net_browse, METH_VARARGS, NULL },
 	{ "shell_open", mk_shell_open, METH_VARARGS, NULL },
+	{ "is_elevated", mk_is_elevated, METH_NOARGS, NULL },
 	{ NULL, NULL, 0, NULL },
 };
 

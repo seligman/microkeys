@@ -60,6 +60,36 @@ Patterns are case-insensitive; `*` matches any run of characters and `?` one cha
 
 When you press a hotkey, MicroKeys waits until you let go of the modifier keys before the macro starts, so they don't mix with the keys it types.
 
+### Mouse buttons
+
+A hotkey can be a mouse button or a turn of the wheel, with or without modifiers: `mouseleft`, `mouseright`, `mousemiddle`, `mousex1` and `mousex2` (the side buttons), and `wheelup`, `wheeldown`, `wheelleft` and `wheelright`.
+
+```python
+@hotkey("mousex1", when="explorer.exe")
+def up_a_folder():
+    keys.press("alt+up")
+
+@hotkey("ctrl+shift+wheelup")
+def louder():
+    keys.press("volumeup")
+```
+
+The program under the pointer doesn't see a click or a wheel turn that's a hotkey.  `mouseleft` needs a modifier, since without one it would take every click.
+
+## Remapping keys
+
+`keys.remap()` makes one key act as another for as long as MicroKeys runs, or (with `None`) do nothing at all:
+
+```python
+from microkeys import keys
+
+keys.remap("capslock", "ctrl")
+keys.remap("insert", None)
+keys.remap("rctrl", "apps", when="code.exe")
+```
+
+A remapped key is held as long as you hold it, so it works in combinations: with Caps Lock as Ctrl, Caps Lock+C copies.  `when=` works as it does for hotkeys.  Keys that macros send aren't remapped, and `unbind(remap="capslock")` puts a key back.
+
 ## Hotstrings
 
 A hotstring replaces text as you type it:
@@ -153,7 +183,7 @@ def arrow_keys_off():
         unbind(hotkey=key)
 ```
 
-`unbind(func)` removes everything that runs `func`; `unbind(hotkey=...)`, `unbind(hotstring=...)` and `unbind(command=...)` remove one binding by what triggers it.
+`unbind(func)` removes everything that runs `func`; `unbind(hotkey=...)`, `unbind(hotstring=...)`, `unbind(command=...)`, `unbind(remap=...)` and `unbind(message=...)` remove one binding by what triggers it.
 
 ## The clipboard
 
@@ -171,6 +201,78 @@ def paste_link():
 `clip.save()` keeps a copy of everything on the clipboard and `clip.restore()` puts it back; `paste_text()` uses them, so pasting text through the clipboard doesn't lose an image that was there.
 
 `@clip.on_change` runs a function when another program changes the clipboard, and `clip.history()` lists the text copied recently, newest first.  The history is kept in memory only, and leaves out what password managers mark as private.
+
+## The screen
+
+`screen` reads colours from the screen, takes screenshots, and finds pictures on it, for programs that offer no better way in:
+
+```python
+from microkeys import hotkey, screen
+
+@hotkey("ctrl+alt+o")
+def click_ok():
+    found = screen.wait_for("ok_button.png", timeout=5)
+    if found:
+        found.click()
+```
+
+`screen.capture()` takes a screenshot, of every monitor or of a window, a monitor, or an area, and `.save()` writes it as a PNG; save a small piece of one, or crop a screenshot in an image editor, to have something to look for.  `screen.find()` looks for an image once, `screen.wait_for()` keeps looking until it appears, and `screen.pixel()` and `screen.wait_for_color()` work with single points.  `tolerance=` lets colours differ a little, and fully transparent pixels in a PNG match anything.  Coordinates are screen pixels, as for the mouse.
+
+### Text on screen
+
+`screen.find_text()` finds where some text is showing, in any program, web pages included, and `.click()` clicks the middle of it:
+
+```python
+@hotkey("ctrl+alt+c")
+def continue_reading():
+    screen.find_text("Click here to continue").click()
+```
+
+It looks two ways.  First it asks the window in front (or the window given as `region=`) for its text through accessibility, the same text screen readers use; that's exact and quick, and finds text anywhere in a web page in Chrome, Edge, and Firefox.  If that finds nothing, it reads the screen with OCR, which works on anything showing text, pictures of text and games included, but can misread text that's very small, faint, or fancy.  `method="controls"` or `method="ocr"` uses just one way.  Both run on your own computer; the OCR is the one built into Windows.
+
+Letters and digits are compared, not spaces or punctuation, case doesn't matter (unless `match_case=True`), and only whole words match, so "here" isn't found in "where".  Text that's scrolled away or covered by another window isn't found.  `screen.find_all_text()` finds every place, `screen.wait_for_text()` waits for text to appear, and `screen.read_text()` reads all the text in a window or area, line by line.  OCR reads the languages Windows has OCR for, normally the one it was set up in; `screen.text_languages()` lists them, and `language="fr-FR"` picks one.
+
+## Controls in windows
+
+`controls` finds the buttons, text boxes, check boxes and other controls inside windows and works them directly, through UI Automation.  Unlike clicking at a position, that keeps working when a window moves or its layout changes:
+
+```python
+from microkeys import hotkey, controls, windows
+
+@hotkey("ctrl+alt+s")
+def search_invoices():
+    win = windows.find_one(process="myapp.exe")
+    controls.find(automation_id="SearchBox", window=win).value = "invoices"
+    controls.find(name="Search", role="button", window=win).click()
+```
+
+Look controls up by `name` (what the control says, or its label), `role` (such as `button`, `edit`, `checkbox`, `menuitem`, or `listitem`), `automation_id` (the program's own name for it, which doesn't change with the language) or `class_name`, in the window in front or the one given.  To see what a control is called, point at it and enter `controls.at(*mouse.position())` at the log window's prompt.
+
+## Messages between machines
+
+A macro on one computer can run a handler on another, say a hotkey on your laptop that locks your desktop, or a build machine telling you it's done:
+
+```python
+from microkeys import hotkey, net, run, ui
+
+# On the laptop
+@hotkey("ctrl+alt+l")
+def lock_desktop():
+    net.send("desktop", "lock")
+
+# On the desktop
+@net.on("lock")
+def lock():
+    run("rundll32.exe user32.dll,LockWorkStation")
+
+@net.on("notify")
+def notify(text):
+    ui.toast(f"{net.sender()}: {text}")
+```
+
+First pair the machines: on one, choose **Networking > Generate a pairing token** from the tray menu and copy the token it shows; on each of the others choose **Networking > Enter a pairing token** and paste it.  Only machines with the same token talk to each other, and nothing listens for messages until a token is set.
+
+Machines find each other by name, which is the computer's name unless the `net_name` setting gives another: through Tailscale's MagicDNS or ordinary DNS, or through Bonjour on the local network.  There's no relay server, so the machines have to share a network or a VPN such as Tailscale.  Messages are signed with the token, so they can't be forged or changed on the way, but they aren't secret; Tailscale encrypts them.  The first time MicroKeys takes messages, Windows asks whether to let it through the firewall.
 
 ## Keeping data between runs
 
@@ -210,7 +312,15 @@ Press **Ctrl+Alt+Backspace** to stop the macro that's running, or use **Stop run
 
 Macros run one at a time.  If you press another hotkey while one runs, it waits its turn.
 
-**Pause** in the tray menu turns off hotkeys, hotstrings, timers and events until you choose it again.
+**Pause** in the tray menu turns off hotkeys, hotstrings, remapped keys, timers, events and messages until you choose it again.
+
+## Moving to another computer
+
+**Export scripts and settings...** in the tray menu saves your scripts, your settings and the `store` in one zip file.  On the other computer, **Import scripts and settings...** shows what would change, then either merges the zip in (its files and settings win, everything else stays) or replaces what's there to match it.  Before an import changes anything, MicroKeys saves what was there as a zip in `%APPDATA%\MicroKeys\backups`.  The `script_folder` setting and the networking token stay with each computer.
+
+## Running as administrator
+
+Windows doesn't let a program send keys or clicks to a program running as administrator unless it runs as administrator too.  **Run as administrator** in the tray menu restarts MicroKeys with administrator rights, after Windows asks you to allow it, and it starts that way from then on.  With **Start with Windows** on as well, MicroKeys sets up a scheduled task so it can start as administrator when you sign in without asking.  `Window.elevated` tells whether a window belongs to a program MicroKeys can't reach this way.  Keep in mind that programs your macros start then run as administrator too.
 
 ## Settings
 
@@ -227,6 +337,10 @@ Macros run one at a time.  If you press another hotkey while one runs, it waits 
 - `editor`: what opens a file name you click in the log, with `{file}` and `{line}` where the file and line go, like `"C:\\Program Files\\Notepad++\\notepad++.exe -n{line} {file}"`.  Empty means VS Code or Notepad++ if one is installed, otherwise Notepad.
 - `packages`: packages from PyPI that your scripts import, like `["requests"]`.  See [Python packages](#python-packages).
 - `debug_port`: a port for a debugger to attach to, 0 (off) by default.  See [Debugging](#debugging).
+- `run_elevated`: run as administrator, which **Run as administrator** in the tray menu turns on and off.  See [Running as administrator](#running-as-administrator).
+- `net_name`: this computer's name for messages from other machines.  Empty means its computer name.
+- `net_port`: the port other machines send messages to, 47913 by default.
+- `net_listen`: where to take messages from: empty for every network, or one of this computer's addresses, such as its Tailscale address, to take them from that network only.
 
 The log is kept in `%LOCALAPPDATA%\MicroKeys\MicroKeys.log`.
 
@@ -281,6 +395,6 @@ MicroKeys includes Python 3.14 with the full standard library: `json`, `csv`, `r
 
 ## Things to know
 
-- Windows doesn't let a program send keys or clicks to a program running as administrator unless it's an administrator too.  If a macro does nothing in an elevated window, that's why.
+- Windows doesn't let a program send keys or clicks to a program running as administrator unless it's an administrator too.  If a macro does nothing in an elevated window, that's why; see [Running as administrator](#running-as-administrator).
 - If another program already uses a hotkey, MicroKeys says so in the log and notification, and that hotkey stays with the other program.
 - MicroKeys only runs one copy at a time.  Starting it again shows the running copy's log.

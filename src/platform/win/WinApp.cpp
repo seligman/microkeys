@@ -9,7 +9,12 @@
 #include <dwmapi.h>
 #include <shlwapi.h>
 #include <richedit.h>
+#include <sddl.h>
+#include <taskschd.h>
+#include <wrl/client.h>
 #include <regex>
+
+using Microsoft::WRL::ComPtr;
 
 #define LOG_FILE_MAX		(1024 * 1024)
 #define LOG_WINDOW_MAX		(512 * 1024)
@@ -32,19 +37,31 @@ static LRESULT CALLBACK MainWndProc(HWND hWnd, UINT message, WPARAM wParam, LPAR
 }
 
 static LRESULT CALLBACK KeyboardHookProc(int code, WPARAM wParam, LPARAM lParam) {
-	// Runs on the UI thread for every key anyone presses, so it stays quick
-	if (code == HC_ACTION && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) && _app != nullptr) {
+	// Runs on the UI thread for every key anyone presses, so it stays quick.
+	// Keys a remapped key sends count as typing, but aren't remapped again.
+	if (code == HC_ACTION && _app != nullptr) {
 		const KBDLLHOOKSTRUCT* kb = (const KBDLLHOOKSTRUCT*)lParam;
+		bool down = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
 		if (kb->dwExtraInfo != MICROKEYS_INPUT_TAG) {
-			_app->OnKeyDown(kb);
+			if (kb->dwExtraInfo != MICROKEYS_REMAP_TAG && _app->OnRemapKey(kb, down)) {
+				return 1;
+			}
+			if (down) {
+				_app->OnKeyDown(kb);
+			}
 		}
 	}
 	return CallNextHookEx(NULL, code, wParam, lParam);
 }
 
 static LRESULT CALLBACK MouseHookProc(int code, WPARAM wParam, LPARAM lParam) {
-	// A click can move the caret, so what was typed before no longer counts
+	// Mouse hotkeys, and a click can move the caret, so what was typed
+	// before no longer counts for hotstrings
 	if (code == HC_ACTION && _app != nullptr) {
+		const MSLLHOOKSTRUCT* ms = (const MSLLHOOKSTRUCT*)lParam;
+		if (ms->dwExtraInfo != MICROKEYS_INPUT_TAG && _app->OnMouseHotkey((UINT)wParam, ms)) {
+			return 1;
+		}
 		if (wParam == WM_LBUTTONDOWN || wParam == WM_RBUTTONDOWN || wParam == WM_MBUTTONDOWN) {
 			_app->OnMouseButton();
 		}
@@ -222,6 +239,10 @@ void WinApp::CreateMainWindow() {
 	if (_hWnd == NULL) {
 		return;
 	}
+	// Running as administrator, Windows keeps messages from ordinary programs
+	// out, which includes "MicroKeys.exe run" handing over its commands
+	ChangeWindowMessageFilterEx(_hWnd, WM_COPYDATA, MSGFLT_ALLOW, NULL);
+	ChangeWindowMessageFilterEx(_hWnd, WM_APP_SHOW, MSGFLT_ALLOW, NULL);
 
 	// A sensible size for the current DPI
 	UINT dpi = GetDpiForWindow(_hWnd);
@@ -293,7 +314,7 @@ void WinApp::UpdateTray() {
 	if (!_trayAdded) {
 		return;
 	}
-	string tip = "MicroKeys";
+	string tip = _platform.IsElevated() ? "MicroKeys (administrator)" : "MicroKeys";
 	if (!_running.empty()) {
 		tip += ": running " + _running;
 	}
@@ -721,8 +742,13 @@ void WinApp::MacroState(const string& running) {
 }
 
 bool WinApp::RegisterHotkey(int id, int mods, const string& key, string& error) {
-	// No hotkeys in headless mode, so tests can run next to a real copy
+	// No hotkeys in headless mode, so tests can run next to a real copy.
+	// Mouse hotkeys are the mouse hook's to catch.
 	if (_options.Headless) {
+		return true;
+	}
+	if (IsMouseTrigger(key)) {
+		_mouseHotkeys[id] = make_pair(mods, key);
 		return true;
 	}
 	KeyCode code;
@@ -739,7 +765,7 @@ bool WinApp::RegisterHotkey(int id, int mods, const string& key, string& error) 
 }
 
 void WinApp::UnregisterHotkey(int id) {
-	if (!_options.Headless) {
+	if (!_options.Headless && _mouseHotkeys.erase(id) == 0) {
 		UnregisterHotKey(_hWnd, id);
 	}
 }
@@ -753,6 +779,195 @@ void WinApp::Fire(int kind, int id, const string& extra) {
 
 void WinApp::TriggerLog(int level, const string& text) {
 	Log(level, text);
+}
+
+static UINT RemapKey(UINT vk, bool extended) {
+	// The hook tells Enter from the numpad's Enter only by the extended flag
+	return vk == VK_RETURN && extended ? vk | 0x10000 : vk;
+}
+
+void WinApp::SetRemaps(const vector<RemapBinding>& active) {
+	// Work out the key codes now, so the hook only has to look them up.  The
+	// hook sees the left and right modifiers, never the plain ones.
+	_remaps.clear();
+	HKL layout = GetKeyboardLayout(0);
+	for (auto& rm : active) {
+		KeyCode source, target;
+		if (!LookupKey(rm.Source, layout, source) || source.ImpliedMods != 0) {
+			if (_badRemaps.insert(rm.ID).second) {
+				Log(LOG_ERROR, "Unable to remap " + rm.Source + ": it isn't a key of its own on this keyboard layout");
+			}
+			continue;
+		}
+		if (!rm.Target.empty() && (!LookupKey(rm.Target, layout, target) || target.ImpliedMods != 0)) {
+			if (_badRemaps.insert(rm.ID).second) {
+				Log(LOG_ERROR, "Unable to remap " + rm.Source + " to " + rm.Target + ": it isn't a key of its own on this keyboard layout");
+			}
+			continue;
+		}
+		RemapTarget to;
+		to.VK = rm.Target.empty() ? 0 : target.VK;
+		to.Extended = target.Extended;
+		vector<UINT> keys;
+		switch (source.VK) {
+		case VK_CONTROL: keys = { VK_LCONTROL, VK_RCONTROL }; break;
+		case VK_MENU: keys = { VK_LMENU, VK_RMENU }; break;
+		case VK_SHIFT: keys = { VK_LSHIFT, VK_RSHIFT }; break;
+		default:
+			keys = { source.VK };
+			if (rm.Source == "meta") {
+				keys.push_back(VK_RWIN);
+			}
+		}
+		for (UINT vk : keys) {
+			_remaps[RemapKey(vk, source.Extended)] = to;
+		}
+	}
+}
+
+static void SendRemapKey(const RemapTarget& target, bool up) {
+	INPUT input = { 0 };
+	input.type = INPUT_KEYBOARD;
+	input.ki.wVk = (WORD)target.VK;
+	input.ki.wScan = (WORD)MapVirtualKeyW(target.VK, MAPVK_VK_TO_VSC_EX);
+	input.ki.dwFlags = (target.Extended ? KEYEVENTF_EXTENDEDKEY : 0) | (up ? KEYEVENTF_KEYUP : 0);
+	input.ki.dwExtraInfo = MICROKEYS_REMAP_TAG;
+	SendInput(1, &input, sizeof(INPUT));
+}
+
+bool WinApp::OnRemapKey(const KBDLLHOOKSTRUCT* kb, bool down) {
+	// A remapped key: send its target instead, and keep the key itself from
+	// the program in front.  A key that went down remapped comes up the same
+	// way, even if the remap changed while it was held.
+	if (_remaps.empty() && _remapsDown.empty()) {
+		return false;
+	}
+	UINT key = RemapKey(kb->vkCode, (kb->flags & LLKHF_EXTENDED) != 0);
+	auto held = _remapsDown.find(key);
+	if (!down) {
+		if (held == _remapsDown.end()) {
+			return false;
+		}
+		if (held->second.VK != 0) {
+			SendRemapKey(held->second, true);
+		}
+		_remapsDown.erase(held);
+		return true;
+	}
+	if (held == _remapsDown.end()) {
+		auto it = _remaps.find(key);
+		if (it == _remaps.end()) {
+			return false;
+		}
+		held = _remapsDown.insert(make_pair(key, it->second)).first;
+	}
+	if (held->second.VK != 0) {
+		SendRemapKey(held->second, false);
+	}
+	return true;
+}
+
+void WinApp::ReleaseRemaps() {
+	// The hook is going, so nothing will see these keys come up
+	for (auto& cur : _remapsDown) {
+		if (cur.second.VK != 0) {
+			SendRemapKey(cur.second, true);
+		}
+	}
+	_remapsDown.clear();
+	_mouseSwallowed.clear();
+}
+
+static int ModifiersDown() {
+	int mods = 0;
+	if (GetAsyncKeyState(VK_CONTROL) & 0x8000) {
+		mods |= MOD_KEY_CTRL;
+	}
+	if (GetAsyncKeyState(VK_MENU) & 0x8000) {
+		mods |= MOD_KEY_ALT;
+	}
+	if (GetAsyncKeyState(VK_SHIFT) & 0x8000) {
+		mods |= MOD_KEY_SHIFT;
+	}
+	if ((GetAsyncKeyState(VK_LWIN) & 0x8000) || (GetAsyncKeyState(VK_RWIN) & 0x8000)) {
+		mods |= MOD_KEY_META;
+	}
+	return mods;
+}
+
+static void MaskMouseHotkey(int mods) {
+	// The program in front never sees the click, so to it Alt or Win goes
+	// down and up with nothing in between, which opens the menu bar or the
+	// Start menu.  A Ctrl going down in between stops that: a Ctrl already
+	// held goes up and down again, otherwise one is tapped.
+	if ((mods & (MOD_KEY_ALT | MOD_KEY_META)) == 0) {
+		return;
+	}
+	UINT vk = (GetAsyncKeyState(VK_RCONTROL) & 0x8000) ? VK_RCONTROL : (GetAsyncKeyState(VK_LCONTROL) & 0x8000) ? VK_LCONTROL : 0;
+	bool held = vk != 0;
+	if (!held) {
+		vk = VK_LCONTROL;
+	}
+	for (int i = 0; i < 2; i++) {
+		INPUT input = { 0 };
+		input.type = INPUT_KEYBOARD;
+		input.ki.wVk = (WORD)vk;
+		input.ki.wScan = (WORD)MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
+		input.ki.dwFlags = (vk == VK_RCONTROL ? KEYEVENTF_EXTENDEDKEY : 0) | ((i == 0) == held ? KEYEVENTF_KEYUP : 0);
+		input.ki.dwExtraInfo = MICROKEYS_INPUT_TAG;
+		SendInput(1, &input, sizeof(INPUT));
+	}
+}
+
+bool WinApp::OnMouseHotkey(UINT message, const MSLLHOOKSTRUCT* ms) {
+	// A mouse button or wheel turn that's a hotkey runs its macro, and the
+	// program under the pointer never sees it, nor the button coming up
+	if (_mouseHotkeys.empty() && _mouseSwallowed.empty()) {
+		return false;
+	}
+	string button;
+	bool down = true;
+	switch (message) {
+	case WM_LBUTTONDOWN: case WM_LBUTTONUP:
+		button = "mouseleft";
+		down = message == WM_LBUTTONDOWN;
+		break;
+	case WM_RBUTTONDOWN: case WM_RBUTTONUP:
+		button = "mouseright";
+		down = message == WM_RBUTTONDOWN;
+		break;
+	case WM_MBUTTONDOWN: case WM_MBUTTONUP:
+		button = "mousemiddle";
+		down = message == WM_MBUTTONDOWN;
+		break;
+	case WM_XBUTTONDOWN: case WM_XBUTTONUP:
+		button = HIWORD(ms->mouseData) == XBUTTON1 ? "mousex1" : "mousex2";
+		down = message == WM_XBUTTONDOWN;
+		break;
+	case WM_MOUSEWHEEL:
+		button = (short)HIWORD(ms->mouseData) > 0 ? "wheelup" : "wheeldown";
+		break;
+	case WM_MOUSEHWHEEL:
+		button = (short)HIWORD(ms->mouseData) > 0 ? "wheelright" : "wheelleft";
+		break;
+	default:
+		return false;
+	}
+	if (!down) {
+		return _mouseSwallowed.erase(button) > 0;
+	}
+	int mods = ModifiersDown();
+	for (auto& cur : _mouseHotkeys) {
+		if (cur.second.first == mods && cur.second.second == button) {
+			if (button.rfind("mouse", 0) == 0) {
+				_mouseSwallowed.insert(button);
+			}
+			MaskMouseHotkey(mods);
+			_triggers->OnHotkey(cur.first);
+			return true;
+		}
+	}
+	return false;
 }
 
 void WinApp::ApplyConfig(const ShellConfig& config) {
@@ -776,25 +991,45 @@ void WinApp::ApplyConfig(const ShellConfig& config) {
 	if (!_configured || config.UpdateFeed != _config.UpdateFeed || config.CheckUpdates != _config.CheckUpdates) {
 		_updater->Configure(config.UpdateFeed, config.CheckUpdates);
 	}
+	if (!config.RunElevated) {
+		_elevationTried = false;
+	}
+	bool recheck = !_configured || config.RunElevated != _config.RunElevated;
 	_config = config;
 	_configured = true;
+	// Starting with Windows as administrator takes a scheduled task in place
+	// of the Run key, which only a copy running as administrator can set up
+	if (recheck && _platform.IsElevated() && RunAtLogin()) {
+		SetRunAtLogin(true);
+	}
+	if (config.RunElevated && !_platform.IsElevated() && !_elevationTried) {
+		_elevationTried = true;
+		PostMessageW(_hWnd, WM_APP_ELEVATE, 0, 0);
+	}
 }
 
 void WinApp::UpdateHooks() {
-	// The keyboard and mouse hooks only run while there are hotstrings, and
-	// title changes are only watched when a binding cares about titles
-	bool wantKeys = _triggers->HasHotstrings() && !_options.Headless && !_suspended;
+	// The keyboard hook only runs while there are hotstrings or remaps, the
+	// mouse hook while there are hotstrings or mouse hotkeys, and title
+	// changes are only watched when a binding cares about titles
+	bool active = !_options.Headless && !_suspended;
+	bool wantKeys = (_triggers->HasHotstrings() || _triggers->HasRemaps()) && active;
 	if (wantKeys && _keyboardHook == NULL) {
 		_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHookProc, _hInst, 0);
-		_mouseHook = SetWindowsHookExW(WH_MOUSE_LL, MouseHookProc, _hInst, 0);
 	}
 	else if (!wantKeys && _keyboardHook != NULL) {
 		UnhookWindowsHookEx(_keyboardHook);
 		_keyboardHook = NULL;
-		if (_mouseHook != NULL) {
-			UnhookWindowsHookEx(_mouseHook);
-			_mouseHook = NULL;
-		}
+		ReleaseRemaps();
+	}
+	bool wantMouse = (_triggers->HasHotstrings() || _triggers->HasMouseHotkeys()) && active;
+	if (wantMouse && _mouseHook == NULL) {
+		_mouseHook = SetWindowsHookExW(WH_MOUSE_LL, MouseHookProc, _hInst, 0);
+	}
+	else if (!wantMouse && _mouseHook != NULL) {
+		UnhookWindowsHookEx(_mouseHook);
+		_mouseHook = NULL;
+		_mouseSwallowed.clear();
 	}
 	// Foreground events are the main signal; a slow poll covers any that go
 	// missing, so a per-app binding is never stuck on the wrong window
@@ -1108,24 +1343,126 @@ void WinApp::WatchThread(wstring dir, HANDLE stop) {
 	CloseHandle(hDir);
 }
 
+static wstring UserSid() {
+	// The signed in user, as a SID string for the scheduled task
+	wstring ret;
+	HANDLE token = NULL;
+	if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+		return ret;
+	}
+	DWORD size = 0;
+	GetTokenInformation(token, TokenUser, NULL, 0, &size);
+	vector<BYTE> buffer(size);
+	LPWSTR text = NULL;
+	if (size > 0 && GetTokenInformation(token, TokenUser, buffer.data(), size, &size) &&
+		ConvertSidToStringSidW(((TOKEN_USER*)buffer.data())->User.Sid, &text)) {
+		ret = text;
+		LocalFree(text);
+	}
+	CloseHandle(token);
+	return ret;
+}
+
+static wstring TaskName() {
+	// Scheduled tasks are shared by everyone on the machine
+	wchar_t user[256];
+	DWORD size = 256;
+	return GetUserNameW(user, &size) ? L"MicroKeys (" + wstring(user) + L")" : L"MicroKeys";
+}
+
+static wstring XmlEscape(const wstring& text) {
+	wstring ret;
+	for (wchar_t c : text) {
+		switch (c) {
+		case '&': ret += L"&amp;"; break;
+		case '<': ret += L"&lt;"; break;
+		case '>': ret += L"&gt;"; break;
+		default: ret += c;
+		}
+	}
+	return ret;
+}
+
+static bool LoginTask(const wstring& exe, bool create, bool remove) {
+	// Look for, create, or remove the scheduled task that starts MicroKeys
+	// as administrator when the user signs in, without asking
+	HRESULT init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+	bool ret = false;
+	{
+		ComPtr<ITaskService> service;
+		ComPtr<ITaskFolder> folder;
+		VARIANT empty;
+		VariantInit(&empty);
+		BSTR root = SysAllocString(L"\\");
+		BSTR name = SysAllocString(TaskName().c_str());
+		if (SUCCEEDED(CoCreateInstance(__uuidof(TaskScheduler), NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&service))) &&
+			SUCCEEDED(service->Connect(empty, empty, empty, empty)) && SUCCEEDED(service->GetFolder(root, &folder))) {
+			if (create) {
+				wstring sid = UserSid();
+				wstring xml =
+					L"<?xml version=\"1.0\" encoding=\"UTF-16\"?>"
+					L"<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">"
+					L"<RegistrationInfo><Description>Starts MicroKeys as administrator when you sign in</Description></RegistrationInfo>"
+					L"<Triggers><LogonTrigger><Enabled>true</Enabled><UserId>" + sid + L"</UserId></LogonTrigger></Triggers>"
+					L"<Principals><Principal id=\"Author\"><UserId>" + sid + L"</UserId><LogonType>InteractiveToken</LogonType>"
+					L"<RunLevel>HighestAvailable</RunLevel></Principal></Principals>"
+					L"<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>"
+					L"<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>"
+					L"<ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Priority>7</Priority></Settings>"
+					L"<Actions Context=\"Author\"><Exec><Command>" + XmlEscape(exe) + L"</Command></Exec></Actions>"
+					L"</Task>";
+				BSTR text = SysAllocString(xml.c_str());
+				ComPtr<IRegisteredTask> task;
+				ret = SUCCEEDED(folder->RegisterTask(name, text, TASK_CREATE_OR_UPDATE, empty, empty, TASK_LOGON_INTERACTIVE_TOKEN, empty, &task));
+				SysFreeString(text);
+			}
+			else if (remove) {
+				ret = SUCCEEDED(folder->DeleteTask(name, 0));
+			}
+			else {
+				ComPtr<IRegisteredTask> task;
+				ret = SUCCEEDED(folder->GetTask(name, &task));
+			}
+		}
+		SysFreeString(root);
+		SysFreeString(name);
+	}
+	if (SUCCEEDED(init)) {
+		CoUninitialize();
+	}
+	return ret;
+}
+
 bool WinApp::RunAtLogin() {
 	wchar_t value[1024];
 	DWORD size = sizeof(value);
 	return RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", L"MicroKeys",
-		RRF_RT_REG_SZ, NULL, value, &size) == ERROR_SUCCESS;
+		RRF_RT_REG_SZ, NULL, value, &size) == ERROR_SUCCESS || LoginTask(L"", false, false);
 }
 
 void WinApp::SetRunAtLogin(bool enable) {
-	// Start through the launcher when there is one, so updates are picked up
+	// Start through the launcher when there is one, so updates are picked up.
+	// To start as administrator without asking, a scheduled task does it
+	// instead of the Run key; only a copy running as administrator can set
+	// that up, and the others leave it alone.
+	wstring exe = Utf8ToUtf16(_installDir + "\\MicroKeys.exe");
+	if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
+		exe = Utf8ToUtf16(_appDir + "\\MicroKeysApp.exe");
+	}
+	bool elevated = _platform.IsElevated();
+	bool useTask = enable && _config.RunElevated && elevated;
+	if (useTask && !LoginTask(exe, true, false)) {
+		Log(LOG_ERROR, "Unable to set up the scheduled task that starts MicroKeys as administrator; it will ask each time instead");
+		useTask = false;
+	}
+	if (!useTask && elevated) {
+		LoginTask(L"", false, true);
+	}
 	HKEY key;
 	if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &key) != ERROR_SUCCESS) {
 		return;
 	}
-	if (enable) {
-		wstring exe = Utf8ToUtf16(_installDir + "\\MicroKeys.exe");
-		if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) {
-			exe = Utf8ToUtf16(_appDir + "\\MicroKeysApp.exe");
-		}
+	if (enable && !useTask) {
 		wstring cmd = L"\"" + exe + L"\"";
 		RegSetValueExW(key, L"MicroKeys", 0, REG_SZ, (const BYTE*)cmd.c_str(), (DWORD)((cmd.size() + 1) * sizeof(wchar_t)));
 	}
@@ -1133,6 +1470,58 @@ void WinApp::SetRunAtLogin(bool enable) {
 		RegDeleteValueW(key, L"MicroKeys");
 	}
 	RegCloseKey(key);
+}
+
+static wstring QuoteArg(const wstring& arg) {
+	// Quoted so CommandLineToArgvW gives it back as it was: backslashes are
+	// only special when they come before a quote
+	wstring ret = L"\"";
+	size_t slashes = 0;
+	for (wchar_t c : arg) {
+		if (c == '\\') {
+			slashes++;
+			continue;
+		}
+		ret.append(c == '"' ? slashes * 2 + 1 : slashes, '\\');
+		slashes = 0;
+		ret += c;
+	}
+	ret.append(slashes * 2, '\\');
+	return ret + L"\"";
+}
+
+void WinApp::RestartElevated() {
+	// Start this version again as administrator, and hand over to it the way
+	// an update does.  Windows may ask the user to allow it first, which
+	// takes as long as it takes, so the asking happens on a thread of its own
+	// rather than holding up the hooks; WM_APP_ELEVATE comes back with how
+	// it went.
+	wchar_t exe[MAX_PATH * 2];
+	GetModuleFileNameW(NULL, exe, MAX_PATH * 2);
+	wstring path = exe;
+	wstring args = L"/elevated " + to_wstring(GetCurrentProcessId());
+	// The new copy uses the same folders as this one
+	const pair<const wchar_t*, string> options[] = {
+		{ L"--scripts", _options.ScriptDir }, { L"--data", _options.DataDir }, { L"--log", _options.LogFile },
+	};
+	for (auto& cur : options) {
+		if (!cur.second.empty()) {
+			args += L" " + wstring(cur.first) + L" " + QuoteArg(Utf8ToUtf16(cur.second));
+		}
+	}
+	HWND hwnd = _hWnd;
+	thread([hwnd, path, args] {
+		CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+		SHELLEXECUTEINFOW info = { sizeof(info) };
+		info.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
+		info.lpVerb = L"runas";
+		info.lpFile = path.c_str();
+		info.lpParameters = args.c_str();
+		info.nShow = SW_SHOWNORMAL;
+		DWORD err = ShellExecuteExW(&info) ? ERROR_SUCCESS : GetLastError();
+		CoUninitialize();
+		PostMessageW(hwnd, WM_APP_ELEVATE, 1, err);
+	}).detach();
 }
 
 void WinApp::ShowLog() {
@@ -1155,8 +1544,16 @@ void WinApp::ShowTrayMenu(int x, int y) {
 	AppendMenuW(menu, MF_STRING | (_host->IsBusy() ? 0 : MF_GRAYED), ID_STOPMACRO, L"S&top running macro");
 	AppendMenuW(menu, MF_SEPARATOR, 0, NULL);
 	AppendMenuW(menu, MF_STRING | (RunAtLogin() ? MF_CHECKED : 0), ID_RUNATLOGIN, L"Start with &Windows");
+	AppendMenuW(menu, MF_STRING | (_config.RunElevated ? MF_CHECKED : 0), ID_RUNELEVATED, L"Run as ad&ministrator");
 	AppendMenuW(menu, MF_STRING, ID_OPENSETTINGS, L"Edit se&ttings");
 	AppendMenuW(menu, MF_STRING, ID_INSTALLPACKAGES, L"Install Python pac&kages...");
+	AppendMenuW(menu, MF_STRING, ID_EXPORT, L"&Export scripts and settings...");
+	AppendMenuW(menu, MF_STRING, ID_IMPORT, L"&Import scripts and settings...");
+	HMENU network = CreatePopupMenu();
+	AppendMenuW(network, MF_STRING, ID_NET_NEWTOKEN, L"&Generate a pairing token...");
+	AppendMenuW(network, MF_STRING, ID_NET_ENTERTOKEN, L"&Enter a pairing token...");
+	AppendMenuW(network, MF_STRING, ID_NET_OFF, L"&Turn networking off...");
+	AppendMenuW(menu, MF_POPUP, (UINT_PTR)network, L"&Networking");
 	if (_updater->HasFeed()) {
 		AppendMenuW(menu, MF_STRING, ID_CHECKUPDATES, L"Check for &updates");
 	}
@@ -1225,6 +1622,24 @@ void WinApp::OnCommand(int id) {
 		break;
 	case ID_INSTALLPACKAGES:
 		_host->PostAction("install-packages");
+		break;
+	case ID_EXPORT:
+		_host->PostAction("export");
+		break;
+	case ID_IMPORT:
+		_host->PostAction("import");
+		break;
+	case ID_RUNELEVATED:
+		_host->PostAction("toggle-elevated");
+		break;
+	case ID_NET_NEWTOKEN:
+		_host->PostAction("net-new-token");
+		break;
+	case ID_NET_ENTERTOKEN:
+		_host->PostAction("net-enter-token");
+		break;
+	case ID_NET_OFF:
+		_host->PostAction("net-off");
 		break;
 	case ID_STOPMACRO:
 		Abort();
@@ -1374,6 +1789,26 @@ LRESULT WinApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 		}
 		return 0;
 	}
+
+	case WM_APP_ELEVATE:
+		// Asked to restart as administrator (0), or how the asking went (1)
+		if (_suspended || _exiting) {
+			return 0;
+		}
+		if (wParam == 0) {
+			RestartElevated();
+		}
+		else if (lParam == ERROR_SUCCESS) {
+			Log(LOG_INFO, "Starting again as administrator");
+			ExitApp();
+		}
+		else if (lParam == ERROR_CANCELLED) {
+			Log(LOG_INFO, "Running without administrator rights, since Windows wasn't allowed to give them");
+		}
+		else {
+			Log(LOG_ERROR, "Unable to start as administrator: " + LastErrorText((DWORD)lParam));
+		}
+		return 0;
 
 	case WM_APP_LOADED: {
 		unique_ptr<pair<bool, string>> result((pair<bool, string>*)lParam);

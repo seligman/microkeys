@@ -73,12 +73,22 @@ public:
 	WindowFilter When;
 };
 
+class RemapBinding {
+	// One key acting as another, or (with no target) doing nothing
+public:
+	int ID = 0;
+	string Source;
+	string Target;
+	WindowFilter When;
+};
+
 class Bindings {
 public:
 	vector<HotkeyBinding> Hotkeys;
 	vector<HotstringBinding> Hotstrings;
 	vector<CommandBinding> Commands;
 	vector<WindowEventBinding> WindowEvents;
+	vector<RemapBinding> Remaps;
 };
 
 class KeyAction {
@@ -99,6 +109,78 @@ class ClipItem {
 public:
 	string Kind;
 	string Data;
+};
+
+class Bitmap {
+	// 32-bit pixels, top row first, each one blue, green, red, alpha
+public:
+	int Width = 0;
+	int Height = 0;
+	string Pixels;
+};
+
+class ControlQuery {
+	// What to look for among a window's controls.  Name and ClassName are
+	// case insensitive globs, Role is one of the names RoleName gives, and
+	// empty fields match anything.
+public:
+	string Name;
+	string Role;
+	string AutomationId;
+	string ClassName;
+};
+
+class ControlInfo {
+	// One control's details.  Toggle, Selected and Expanded are -1 when the
+	// control has no such state.
+public:
+	string Name;
+	string Role;
+	string AutomationId;
+	string ClassName;
+	string RuntimeId;
+	bool Enabled = false;
+	bool Focused = false;
+	bool Offscreen = false;
+	ScreenRect Bounds;
+	uint64_t Window = 0;
+	bool HasValue = false;
+	bool ReadOnly = true;
+	string Value;
+	int Toggle = -1;
+	int Selected = -1;
+	int Expanded = -1;
+	vector<string> Actions;
+};
+
+class TextWord {
+	// A word read off an image (OCR): where it is in the image, and which
+	// line it's on, counting from 0 in reading order
+public:
+	string Text;
+	ScreenRect Bounds;
+	int Line = 0;
+};
+
+class TextMatch {
+	// Text found through accessibility.  A match in a document has a
+	// rectangle per line it covers, its own text, and a few characters
+	// either side of it, for telling whole words from parts of words.  A
+	// control matched by its name (or value, for a text box) has the
+	// control's rectangle and that whole name or value.
+public:
+	vector<ScreenRect> Rects;
+	bool InDocument = false;
+	string Text;
+	string Context;
+	string Name;
+};
+
+class FileType {
+	// A choice in a file dialog's type list, like "Zip files" and "*.zip"
+public:
+	string Name;
+	string Pattern;
 };
 
 class IHotkeys {
@@ -151,6 +233,34 @@ public:
 	virtual bool RequestClose(uint64_t handle) = 0;
 	virtual vector<MonitorInfo> Monitors() = 0;
 	virtual int WindowMonitor(uint64_t handle) = 0;
+	virtual bool IsElevatedWindow(uint64_t handle) = 0;
+
+	// Screen and images
+	virtual bool CaptureScreen(const ScreenRect& rect, Bitmap& bitmap, string& error) = 0;
+	virtual bool DecodeImage(const string& data, Bitmap& bitmap, string& error) = 0;
+	virtual bool EncodePng(const Bitmap& bitmap, string& png, string& error) = 0;
+	// Reading text off an image with the system's OCR.  An empty language
+	// means the user's own.  The image is scaled up by scale first, for
+	// small text, where there's room.
+	virtual bool ReadText(const Bitmap& bitmap, const string& language, int scale, vector<TextWord>& words, string& error) = 0;
+	virtual vector<string> TextLanguages() = 0;
+
+	// Controls inside windows (UI Automation, the Accessibility API).  A
+	// control is a handle that stays valid until it's released.
+	virtual bool FindControls(uint64_t root, uint64_t window, const ControlQuery& query, bool all, vector<uint64_t>& found, string& error) = 0;
+	virtual bool GetControlInfo(uint64_t control, ControlInfo& info) = 0;
+	virtual bool GetControlText(uint64_t control, string& text) = 0;
+	virtual bool ControlAction(uint64_t control, const string& action, const string& value, string& error) = 0;
+	virtual vector<uint64_t> RelatedControls(uint64_t control, bool parent) = 0;
+	virtual uint64_t FocusedControl() = 0;
+	virtual uint64_t ControlAt(int x, int y) = 0;
+	virtual void ReleaseControl(uint64_t control) = 0;
+	// Where text shows on screen, searching the text of documents (and text
+	// boxes), or else controls' names, under root or the window (0 for the
+	// one in front).  Only text that can be seen, not scrolled away or
+	// covered, is found.
+	virtual bool FindControlText(uint64_t root, uint64_t window, const string& text, bool matchCase, bool documents, size_t limit,
+		vector<TextMatch>& found, string& error) = 0;
 
 	// User interface
 	virtual string ShowMessage(const string& text, const string& title, const string& buttons) = 0;
@@ -159,10 +269,18 @@ public:
 	virtual void Toast(const string& title, const string& text) = 0;
 	// Empty text takes it down; a negative timeout leaves it up
 	virtual void ShowOverlay(const string& text, int timeoutMs) = 0;
+	virtual bool AskFile(bool save, const string& title, const vector<FileType>& types, const string& initial, string& path) = 0;
+
+	// Finding other MicroKeys machines on the local network (Bonjour).  An
+	// empty name stops advertising.
+	virtual bool Advertise(const string& name, int port, string& error) = 0;
+	virtual bool Resolve(const string& name, int timeoutMs, string& host, int& port) = 0;
+	virtual vector<string> Browse(int timeoutMs) = 0;
 
 	// System
 	virtual bool ShellOpen(const string& target, string& error) = 0;
 	virtual string PlatformName() = 0;
+	virtual bool IsElevated() = 0;
 };
 
 class ShellConfig {
@@ -174,6 +292,7 @@ public:
 	string UpdateFeed;
 	bool CheckUpdates = true;
 	string Editor;
+	bool RunElevated = false;
 };
 
 class IAppShell {

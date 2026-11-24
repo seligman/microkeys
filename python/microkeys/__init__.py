@@ -21,7 +21,10 @@ Modules:
 * `clip` - the clipboard
 * `mouse` - the mouse
 * `windows` - find, arrange, and switch windows, and react to them
+* `controls` - buttons, text boxes and other controls inside windows
+* `screen` - colours, screenshots, and finding images on screen
 * `ui` - message boxes, questions, and notifications
+* `net` - messages between machines
 
 Also `store`, a dict kept between runs, and `log`, `sleep`, `run`, `open`,
 and `paste_text`.
@@ -35,9 +38,10 @@ from ._bindings import hotkey, hotstring, command, on_start, on_reload, unbind
 from ._timers import every, after, at
 from ._system import log, sleep, run, open, version
 from ._store import store
-from . import keys, clip, mouse, windows, ui
+from . import keys, clip, mouse, windows, controls, screen, ui, net
 from .clip import paste_text
 
 # open() is left out so "from microkeys import *" doesn't hide the built-in
 __all__ = ["hotkey", "hotstring", "command", "on_start", "on_reload", "unbind", "every", "after", "at",
-           "keys", "clip", "mouse", "windows", "ui", "store", "log", "sleep", "run", "paste_text", "version"]
+           "keys", "clip", "mouse", "windows", "controls", "screen", "ui", "net", "store", "log", "sleep", "run",
+           "paste_text", "version"]

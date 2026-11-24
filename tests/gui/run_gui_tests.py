@@ -13,6 +13,7 @@ import ctypes.wintypes as wt
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import textwrap
@@ -21,9 +22,13 @@ import time
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
+INPUT_MOUSE = 0
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 2
-VK = {"ctrl": 0x11, "alt": 0x12, "shift": 0x10, "back": 0x08, "delete": 0x2E, "enter": 0x0D, "f7": 0x76,
+MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEEVENTF_WHEEL = 0x80, 0x100, 0x800
+XBUTTON1 = 1
+VK = {"ctrl": 0x11, "alt": 0x12, "shift": 0x10, "back": 0x08, "delete": 0x2E, "enter": 0x0D, "f3": 0x72, "f4": 0x73,
+      "f5": 0x74, "f6": 0x75, "f7": 0x76,
       "f8": 0x77, "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B, "a": 0x41, "b": 0x42, "i": 0x49, "j": 0x4A,
       "k": 0x4B, "l": 0x4C, "m": 0x4D, "r": 0x52, "u": 0x55}
 WM_COMMAND = 0x0111
@@ -45,8 +50,11 @@ MOD_ALT, MOD_CONTROL = 1, 2
 TARGET = "MicroKeys Test Target"
 OTHER = "Other Target"
 LATER = "Opened Later"
+CONTROLS = "Controls Target"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "python"))
+from microkeys import _net
 
 
 class KEYBDINPUT(ctypes.Structure):
@@ -68,6 +76,13 @@ class INPUT(ctypes.Structure):
 def key_event(vk, up=False):
     inp = INPUT(type=INPUT_KEYBOARD)
     inp.u.ki = KEYBDINPUT(wVk=vk, wScan=0, dwFlags=KEYEVENTF_KEYUP if up else 0, time=0, dwExtraInfo=0)
+    user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
+    time.sleep(0.02)
+
+
+def mouse_event(flags, data=0):
+    inp = INPUT(type=INPUT_MOUSE)
+    inp.u.mi = MOUSEINPUT(dx=0, dy=0, mouseData=data, dwFlags=flags, time=0, dwExtraInfo=0)
     user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
     time.sleep(0.02)
 
@@ -152,6 +167,9 @@ class Run:
         self.results = os.path.join(work, "results.jsonl")
         self.target_out = os.path.join(work, "target.txt")
         self.other_out = os.path.join(work, "other.txt")
+        self.controls_out = os.path.join(work, "controls.txt")
+        self.token = _net.new_token()
+        self.net_port = 0
         self.log = os.path.join(self.data, "MicroKeys.log")
         self.proc = None
         self.targets = []
@@ -177,8 +195,9 @@ class Run:
             return ""
 
     def target_text(self, out=None):
+        # PowerShell 5.1 starts UTF-8 files with a byte order mark
         try:
-            with open(out or self.target_out, encoding="utf-8") as f:
+            with open(out or self.target_out, encoding="utf-8-sig") as f:
                 return f.read()
         except OSError:
             return ""
@@ -217,7 +236,16 @@ class Run:
         self.write_script("reload_test.py", RELOAD_V1)
         for title, out in ((TARGET, self.target_out), (OTHER, self.other_out)):
             self.targets.append(subprocess.Popen([sys.executable, os.path.join(HERE, "target.py"), title, out]))
-        wait_for(lambda: find_window(TARGET) and find_window(OTHER), 10, "test windows")
+        self.targets.append(subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                                              os.path.join(HERE, "controls_target.ps1"), self.controls_out]))
+        wait_for(lambda: find_window(TARGET) and find_window(OTHER) and find_window(CONTROLS), 20, "test windows")
+        # Paired for messages, on a port of its own
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            self.net_port = s.getsockname()[1]
+        with open(os.path.join(self.data, "settings.json"), "w", encoding="utf-8") as f:
+            json.dump({"check_updates": False, "net_name": "mk-gui-test", "net_port": self.net_port, "net_listen": "127.0.0.1"}, f)
+        _net.save_token(self.data, self.token)
         # Taken by "another program" before MicroKeys starts
         if not user32.RegisterHotKey(None, 1, MOD_CONTROL | MOD_ALT, VK["f7"]):
             raise Exception("Unable to take Ctrl+Alt+F7 for the conflict test")
@@ -371,6 +399,80 @@ MAIN_SCRIPT = r'''
             ui.show(f"Step {i} of 300\n" + "word " * (i % 40))
         ui.hide()
         record("t28", "done")
+
+    keys.remap("f6", "b", when=TARGET)
+    keys.remap("f3", "shift", when=TARGET)
+    keys.remap("f5", None, when=TARGET)
+
+    @hotkey("ctrl+mousex1")
+    def t30():
+        record("t30", "x1")
+
+    @hotkey("ctrl+shift+wheelup")
+    def t31():
+        record("t31", "wheel")
+
+    @command("screen-test")
+    def t32():
+        import os
+        from microkeys import screen
+        win = windows.find_one(title="MicroKeys Test Target")
+        x, y, w, h = win.bounds
+        part = screen.capture((x, y, 260, 30))
+        path = os.path.join(os.path.dirname(os.environ["MK_GUI_RESULTS"]), "part.png")
+        part.save(path)
+        found = screen.find(path)
+        again = screen.load(path)
+        same = again.pixel(5, 5) == part.pixel(5, 5) == screen.pixel(x + 5, y + 5)
+        record("t32", [list(found) if found else None, [x, y], same, list(screen.wait_for(path, timeout=1) or [])])
+
+    @command("controls-test")
+    def t33():
+        from microkeys import controls
+        win = windows.find_one(title="Controls Target")
+        box = controls.find(automation_id="NameBox", window=win)
+        box.value = "Ada"
+        check = controls.find(name="I agree", role="checkbox", window=win)
+        check.click()
+        go = controls.find(name="Go", role="button", window=win)
+        go.click()
+        record("t33", [box.value, check.checked, go.role, sorted(set(c.role for c in controls.find_all(window=win)))])
+
+    @command("text-test")
+    def t37():
+        import os
+        from microkeys import controls, screen
+        win = windows.find_one(title="Controls Target")
+        check = controls.find(name="I agree", role="checkbox", window=win)
+        label = controls.find(name="Name:", role="text", window=win)
+        spots = {}
+        for method in ("controls", "ocr", "auto"):
+            spot = screen.find_text("I agree", region=win, method=method)
+            spots[method] = list(spot) if spot else None
+        shot = screen.capture(win)
+        shot.save(os.path.join(os.path.dirname(os.environ["MK_GUI_RESULTS"]), "controls.png"))
+        lines = [line.text for line in shot.read_text()]
+        was = check.checked
+        spot = screen.find_text("i agree", region=win, method="ocr")
+        if spot:
+            spot.click()
+            time.sleep(0.3)
+        name = screen.find_text("Name", region=win, method="ocr")
+        record("t37", [list(check.bounds), spots, lines, was, check.checked, list(name) if name else None, list(label.bounds)])
+
+    @command("file-test")
+    def t34():
+        record("t34", ui.choose_file(save=True, title="Pick a file", types=[("Text files", "*.txt")], default="first.txt"))
+
+    from microkeys import net
+
+    @net.on("ping")
+    def t35(text):
+        record("t35", [text, net.sender()])
+
+    @command("machines-test")
+    def t36():
+        record("t36", [net.name(), net.machines(timeout=3)])
 '''
 
 RELOAD_V1 = '''
@@ -632,6 +734,95 @@ def run_tests(r):
             kernel32.CloseHandle(process)
         assert grew <= 2, f"GDI objects grew by {grew}"
 
+    def t_remap():
+        r.clear_target()
+        time.sleep(0.5)
+        combo("f6")
+        combo("f5")
+        key_event(VK["f3"])
+        combo("a")
+        key_event(VK["f3"], up=True)
+        wait_for(lambda: r.target_text() == "bA", 5, f"'bA', have {r.target_text()!r}")
+        r.clear_target(OTHER)
+        time.sleep(0.5)
+        combo("f6")
+        time.sleep(0.5)
+        assert r.target_text(r.other_out) == "", "a remap for the target worked in the other window"
+
+    def t_mouse_hotkeys():
+        focus(TARGET)
+        key_event(VK["ctrl"])
+        mouse_event(MOUSEEVENTF_XDOWN, XBUTTON1)
+        mouse_event(MOUSEEVENTF_XUP, XBUTTON1)
+        key_event(VK["ctrl"], up=True)
+        assert r.wait_record("t30") == "x1"
+        key_event(VK["ctrl"])
+        key_event(VK["shift"])
+        mouse_event(MOUSEEVENTF_WHEEL, 120)
+        key_event(VK["shift"], up=True)
+        key_event(VK["ctrl"], up=True)
+        assert r.wait_record("t31") == "wheel"
+        # Without Ctrl, X1 isn't a hotkey
+        mouse_event(MOUSEEVENTF_XDOWN, XBUTTON1)
+        mouse_event(MOUSEEVENTF_XUP, XBUTTON1)
+        time.sleep(0.5)
+        assert len(r.records("t30")) == 1
+
+    def t_screen():
+        r.clear_target()
+        subprocess.run([r.exe, "run", "screen-test"], timeout=10)
+        found, origin, same, waited = r.wait_record("t32", timeout=20)
+        assert found is not None and found[:2] == origin, f"found {found}, the window is at {origin}"
+        assert same, "the saved image or screen.pixel() disagree"
+        assert waited == found
+
+    def t_controls():
+        subprocess.run([r.exe, "run", "controls-test"], timeout=10)
+        value, checked, role, roles = r.wait_record("t33", timeout=20)
+        assert value == "Ada" and checked is True and role == "button", (value, checked, role)
+        assert {"edit", "checkbox", "button"} <= set(roles), roles
+        wait_for(lambda: r.target_text(r.controls_out).strip() == "clicked:Ada:True", 5,
+                 f"the button's click, have {r.target_text(r.controls_out)!r}")
+
+    def t_text():
+        def inside(spot, box):
+            x, y = spot[0] + spot[2] // 2, spot[1] + spot[3] // 2
+            return box[0] <= x < box[0] + box[2] and box[1] <= y < box[1] + box[3]
+
+        focus(CONTROLS)
+        subprocess.run([r.exe, "run", "text-test"], timeout=10)
+        bounds, spots, lines, was, now, name, label = r.wait_record("t37", timeout=30)
+        for method, spot in spots.items():
+            assert spot is not None and inside(spot, bounds), f"{method} found 'I agree' at {spot}, the check box is at {bounds}; OCR read {lines}"
+        assert spots["controls"] == bounds, spots
+        assert any("I agree" in line for line in lines), lines
+        assert now != was, "clicking the text didn't flip the check box"
+        assert name is not None and inside(name, label), f"'Name' at {name}, the label is at {label}"
+
+    def t_choose_file():
+        # The name box has the focus when the dialog opens
+        subprocess.Popen([r.exe, "run", "file-test"])
+        wait_for(lambda: find_window("Pick a file"), 10, "the file dialog")
+        time.sleep(1)
+        focus("Pick a file")
+        path = os.path.join(r.work, "chosen")
+        combo("ctrl", "a")
+        type_keys(path)
+        combo("enter")
+        assert r.wait_record("t34", timeout=10).lower() == path.lower() + ".txt"
+
+    def t_messages():
+        _net.send(r.token, "gui-harness", f"127.0.0.1:{r.net_port}", 0, "ping", ["hello"], {})
+        assert r.wait_record("t35") == ["hello", "gui-harness"]
+        try:
+            _net.send(_net.new_token(), "gui-harness", f"127.0.0.1:{r.net_port}", 0, "ping", ["forged"], {})
+            raise AssertionError("a message with the wrong token was taken")
+        except _net.NetError:
+            pass
+        subprocess.run([r.exe, "run", "machines-test"], timeout=10)
+        name, machines = r.wait_record("t36", timeout=10)
+        assert name == "mk-gui-test" and name in machines, (name, machines)
+
     for name, func in [
         ("hotkey taken by another program is reported", t_conflict),
         ("on_start", t_on_start),
@@ -658,6 +849,13 @@ def run_tests(r):
         ("message on screen", t_message),
         ("message for a set time", t_message_seconds),
         ("message updates don't leak", t_message_updates),
+        ("remapped keys", t_remap),
+        ("mouse hotkeys", t_mouse_hotkeys),
+        ("screen capture and find", t_screen),
+        ("controls", t_controls),
+        ("text on screen", t_text),
+        ("file dialog", t_choose_file),
+        ("messages between machines", t_messages),
         ("exit during a macro", t_exit_during_macro),
     ]:
         r.check(name, func)

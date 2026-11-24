@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MicroKeys Browser Test</title>
+<style>
+  body { font-family: "Segoe UI", sans-serif; font-size: 16px; margin: 24px; color: #222; background: #fff; }
+  .row { display: flex; gap: 48px; align-items: flex-start; margin-bottom: 28px; }
+  .dark { background: #202124; color: #e8eaed; padding: 12px 18px; }
+  .small { font-size: 10px; }
+  iframe { border: 1px solid #ccc; width: 260px; height: 60px; }
+  .far { margin-top: 3000px; }
+</style>
+</head>
+<body>
+<!--
+  Targets for run_browser_tests.py.  A click puts what it landed on in the
+  title: "<target>/<word>", where the word is the one under the pointer.
+-->
+<div class="row">
+  <a data-t="link" href="#">Open the report</a>
+  <button data-t="button">Save changes</button>
+  <input data-t="input" value="Typed into a box" size="20">
+</div>
+<p data-t="para">The quick brown fox jumps over the lazy dog and keeps on running.</p>
+<p data-t="split">Please click <b>here</b> to continue reading.</p>
+<p data-t="small" class="small">This is the tiny print section.</p>
+<div class="row">
+  <div data-t="dark" class="dark">Night mode banner</div>
+  <canvas id="canvas" width="260" height="60"></canvas>
+  <iframe srcdoc="<!doctype html><body style='font-family: Segoe UI, sans-serif; margin: 8px'><p style='margin: 8px 0'>Text inside a frame</p><script>
+    document.addEventListener('click', e => parent.postMessage('frame/' + (e.target.tagName || ''), '*'));
+  </script></body>"></iframe>
+</div>
+<p data-t="trap">Nowhere to be found.</p>
+<p data-t="far" class="far">Far below the fold.</p>
+
+<script>
+  let clicks = 0;
+  function hit(what) {
+    clicks++;
+    document.title = "MicroKeys Browser Test | " + what + " #" + clicks;
+  }
+
+  function wordAt(x, y) {
+    // The word under a point, from the text the browser hit-tests to
+    let node = null, offset = 0;
+    if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(x, y);
+      if (pos) { node = pos.offsetNode; offset = pos.offset; }
+    } else if (document.caretRangeFromPoint) {
+      const range = document.caretRangeFromPoint(x, y);
+      if (range) { node = range.startContainer; offset = range.startOffset; }
+    }
+    if (!node || node.nodeType !== Node.TEXT_NODE) {
+      return "";
+    }
+    const text = node.textContent;
+    let start = offset, end = offset;
+    while (start > 0 && /\w/.test(text[start - 1])) start--;
+    while (end < text.length && /\w/.test(text[end])) end++;
+    if (start === end) {
+      // Right on a space: the word before it
+      end = start;
+      while (end > 0 && !/\w/.test(text[end - 1])) end--;
+      start = end;
+      while (start > 0 && /\w/.test(text[start - 1])) start--;
+    }
+    return text.slice(start, end);
+  }
+
+  document.addEventListener("click", e => {
+    if (e.target.id === "canvas") {
+      return;
+    }
+    const target = e.target.closest("[data-t]");
+    e.preventDefault();
+    hit((target ? target.dataset.t : "none") + "/" + wordAt(e.clientX, e.clientY));
+  });
+
+  // Text drawn on a canvas is only pixels: no accessibility at all
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff8e0";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = "20px Segoe UI";
+  ctx.fillStyle = "#333";
+  const label = "Painted words";
+  const box = { x: 20, y: 18, w: ctx.measureText(label).width, h: 26 };
+  ctx.fillText(label, box.x, box.y + 20);
+  canvas.addEventListener("click", e => {
+    const r = canvas.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    const inside = x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h;
+    hit("canvas/" + (inside ? "text" : "outside"));
+  });
+
+  window.addEventListener("message", e => hit(String(e.data)));
+</script>
+</body>
+</html>

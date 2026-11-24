@@ -17,6 +17,7 @@ endif()
 
 # The platform neutral core, built everywhere including Linux
 add_library(mkcore STATIC
+	src/core/Image.cpp
 	src/core/Text.cpp
 	src/core/Triggers.cpp
 	src/core/UpdateCore.c
@@ -63,6 +64,10 @@ if(WIN32)
 		src/platform/win/WinKeys.cpp
 		src/platform/win/WinText.cpp
 		src/platform/win/WinOverlay.cpp
+		src/platform/win/WinScreen.cpp
+		src/platform/win/WinOcr.cpp
+		src/platform/win/WinAutomation.cpp
+		src/platform/win/WinDiscovery.cpp
 		src/platform/win/MicroKeys.rc
 	)
 	target_compile_definitions(MicroKeysApp PRIVATE ${MK_WIN_DEFS} MK_PYLIB="${MK_PYLIB}" MK_PYVER="${MK_PYVER}")
@@ -80,7 +85,8 @@ if(WIN32)
 	target_include_directories(MicroKeysApp PRIVATE "${MK_PYROOT}/sdk/include" src/platform/win)
 	target_link_directories(MicroKeysApp PRIVATE "${MK_PYROOT}/sdk/libs")
 	target_link_libraries(MicroKeysApp PRIVATE mkcore ${MK_PYLIB}
-		user32 gdi32 shell32 comctl32 comdlg32 winhttp bcrypt dwmapi shcore ole32 advapi32 shlwapi version windowscodecs)
+		user32 gdi32 shell32 comctl32 comdlg32 winhttp bcrypt dwmapi shcore ole32 oleaut32 advapi32 shlwapi version windowscodecs
+		dnsapi ws2_32 taskschd runtimeobject)
 	target_link_options(MicroKeysApp PRIVATE /MANIFEST:NO)
 
 	add_executable(MicroKeys WIN32

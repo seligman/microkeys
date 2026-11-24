@@ -237,13 +237,14 @@ def test_default_script_folder(env):
 
 
 def test_settings(env):
-    (env.data / "settings.json").write_text(json.dumps({"abort_hotkey": "ctrl+nothing", "key_delay_ms": 0}))
+    (env.data / "settings.json").write_text(json.dumps({"abort_hotkey": "ctrl+nothing", "key_delay_ms": 0, "run_elevated": True}))
     (env.app / "defaults.json").write_text(json.dumps({"update_feed": "https://example.com/feed/"}))
     assert env.start()
-    script_dir, mods, key, feed, check, editor = env.fake.config
+    script_dir, mods, key, feed, check, editor, elevated = env.fake.config
     assert (mods, key) == (3, "backspace")
     assert "Bad abort_hotkey setting" in env.fake.log_text()
     assert feed == "https://example.com/feed/"
+    assert elevated is True
     assert _settings.current["key_delay_ms"] == 0
 
 

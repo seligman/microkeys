@@ -55,6 +55,9 @@ static bool ParseArgs(AppOptions& options) {
 			options.UpdatedFrom = UpdateCore_ParsePid(argv[++i]);
 			options.UpdatedVersion = Utf16ToUtf8(argv[++i]);
 		}
+		else if (arg == L"/elevated" && hasValue) {
+			options.ElevatedFrom = UpdateCore_ParsePid(argv[++i]);
+		}
 		else {
 			ok = false;
 		}
@@ -93,15 +96,22 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 		return 2;
 	}
 
-	// Headless runs are for tests, and may run next to a normal copy
+	// Headless runs are for tests, and may run next to a normal copy.  A copy
+	// running as administrator holds a mutex an ordinary one can't open.
 	if (!options.Headless) {
 		_instanceMutex = CreateMutexW(NULL, TRUE, MICROKEYS_MUTEX);
-		if (GetLastError() == ERROR_ALREADY_EXISTS) {
-			if (options.UpdatedFrom == 0) {
+		DWORD err = GetLastError();
+		if (_instanceMutex == NULL && err == ERROR_ACCESS_DENIED) {
+			ForwardToRunningCopy(options);
+			return 0;
+		}
+		if (err == ERROR_ALREADY_EXISTS) {
+			if (options.UpdatedFrom == 0 && options.ElevatedFrom == 0) {
 				ForwardToRunningCopy(options);
 				return 0;
 			}
-			// Started by an update: the old version lets go as it hands over
+			// Started by an update, or to run as administrator: the old copy
+			// lets go as it hands over
 			DWORD wait = WaitForSingleObject(_instanceMutex, 15000);
 			if (wait != WAIT_OBJECT_0 && wait != WAIT_ABANDONED) {
 				return 1;

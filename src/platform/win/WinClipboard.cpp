@@ -336,7 +336,7 @@ static bool DibToPixels(const string& dib, vector<BYTE>& bgra, int& width, int& 
 	return true;
 }
 
-static bool EncodePng(const vector<BYTE>& bgra, int width, int height, string& png) {
+bool PixelsToPng(const vector<BYTE>& bgra, int width, int height, string& png) {
 	ComScope com;
 	ComPtr<IWICImagingFactory> factory;
 	ComPtr<IStream> stream;
@@ -369,7 +369,7 @@ static bool EncodePng(const vector<BYTE>& bgra, int width, int height, string& p
 	return true;
 }
 
-static bool DecodeImage(const string& data, vector<BYTE>& bgra, int& width, int& height) {
+bool ImageToPixels(const string& data, vector<BYTE>& bgra, int& width, int& height) {
 	// PNG (or anything else WIC reads) to 32-bit top-down pixels
 	ComScope com;
 	ComPtr<IWICImagingFactory> factory;
@@ -434,7 +434,7 @@ static bool ReadImage(string& png) {
 	}
 	vector<BYTE> pixels;
 	int width, height;
-	return DibToPixels(data, pixels, width, height) && EncodePng(pixels, width, height, png);
+	return DibToPixels(data, pixels, width, height) && PixelsToPng(pixels, width, height, png);
 }
 
 bool WinPlatform::ReadClipboard(const string& kind, string& data) {
@@ -498,7 +498,7 @@ bool WinPlatform::WriteClipboard(const vector<ClipItem>& items, string& error) {
 			// PNG for programs that take it, and a DIB for the rest
 			vector<BYTE> pixels;
 			int width, height;
-			if (!DecodeImage(item.Data, pixels, width, height)) {
+			if (!ImageToPixels(item.Data, pixels, width, height)) {
 				error = "That image couldn't be read";
 				ok = false;
 			}

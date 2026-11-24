@@ -105,6 +105,35 @@ class CommandEntry(Entry):
         return f"command {self.name!r} to {_name(self.func)}"
 
 
+class RemapEntry(Entry):
+    # key acting as target, or doing nothing when target is None
+    def __init__(self, key, target, when, source):
+        self.key = key
+        self.target = target
+        self.when = when
+        self.source = source
+
+    def signature(self):
+        return (self.key, self.when.fields() if self.when else ("", "", ""))
+
+    def describe(self):
+        return f"remap {self.key} to {self.target or 'nothing'}"
+
+
+class MessageEntry(Entry):
+    # A handler for messages from other machines
+    def __init__(self, name, func, source):
+        self.name = name
+        self.func = func
+        self.source = source
+
+    def signature(self):
+        return self.name
+
+    def describe(self):
+        return f"message {self.name!r} to {_name(self.func)}"
+
+
 class TimerEntry(Entry):
     # kind is "every" (seconds apart), "after" (once, seconds from created),
     # or "at" (a datetime.time each day, or a datetime.datetime once)
@@ -163,10 +192,12 @@ class Collector:
         self.clipboard = []
         self.starts = []
         self.reloads = []
+        self.remaps = []
+        self.messages = []
 
     def lists(self):
         return [self.hotkeys, self.hotstrings, self.commands, self.timers, self.window_events,
-                self.clipboard, self.starts, self.reloads]
+                self.clipboard, self.starts, self.reloads, self.remaps, self.messages]
 
     def add(self, items, entry):
         if self.filename is None and hasattr(entry, "signature"):
@@ -344,6 +375,32 @@ def command(name, func=None):
     return register
 
 
+def remap(key, target, when=None):
+    # keys.remap(), here with the other bindings
+    collector = _collector("remap")
+    key = _keyspec.remap_key(key)
+    target = None if target is None or target == "" else _keyspec.remap_key(target)
+    collector.add(collector.remaps, RemapEntry(key, target, to_match(when), _source()))
+
+
+def message(name, func):
+    # net.on(), here with the other bindings
+    collector = _collector("on")
+    if not isinstance(name, str) or len(name) == 0:
+        raise ValueError("A message handler needs a message name")
+    source = _source()
+
+    def register(f):
+        if not callable(f):
+            raise TypeError("net.on() needs a function")
+        collector.add(collector.messages, MessageEntry(name, f, source))
+        return f
+
+    if func is not None:
+        return register(func)
+    return register
+
+
 def handler(what, attr, func, args=0):
     # The shared part of on_start, on_reload, and clip.on_change: usable as
     # @decorator, @decorator(), or decorator(func)
@@ -403,24 +460,28 @@ def on_reload(func=None):
     return handler("on_reload", "reloads", func)
 
 
-def unbind(func=None, *, hotkey=None, hotstring=None, command=None):
+def unbind(func=None, *, hotkey=None, hotstring=None, command=None, remap=None, message=None):
     """Remove bindings.  Returns how many were removed.
 
         unbind(my_macro)               # everything that runs my_macro
         unbind(hotkey="ctrl+alt+j")    # that key, whatever its when=
         unbind(hotstring=";sig")
         unbind(command="tidy-windows")
+        unbind(remap="capslock")       # the key goes back to normal
+        unbind(message="lock")         # net.on("lock") handlers
 
     It covers every kind of binding: hotkeys, hotstrings, commands, timers,
-    and events.  Like bindings made by a macro, the change lasts until the
-    scripts next reload, when they bind everything afresh.
+    remaps, events, and message handlers.  Like bindings made by a macro, the
+    change lasts until the scripts next reload, when they bind everything
+    afresh.
     """
-    if func is None and hotkey is None and hotstring is None and command is None:
-        raise TypeError("unbind() needs a function, or hotkey=, hotstring=, or command=")
+    if func is None and hotkey is None and hotstring is None and command is None and remap is None and message is None:
+        raise TypeError("unbind() needs a function, or hotkey=, hotstring=, command=, remap=, or message=")
     if OFFLINE and _current is None and live is None:
         native.say("unbind (only in MicroKeys)")
         return 0
     combo = _keyspec.parse_hotkey(hotkey)[:2] if hotkey is not None else None
+    remapped = _keyspec.remap_key(remap) if remap is not None else None
 
     def doomed(entry):
         if func is not None and entry.func is func:
@@ -431,6 +492,10 @@ def unbind(func=None, *, hotkey=None, hotstring=None, command=None):
             return entry.trigger == hotstring or (not entry.case_sensitive and entry.trigger.lower() == hotstring.lower())
         if command is not None and isinstance(entry, CommandEntry):
             return entry.name == command
+        if remapped is not None and isinstance(entry, RemapEntry):
+            return entry.key == remapped
+        if message is not None and isinstance(entry, MessageEntry):
+            return entry.name == message
         return False
 
     global changed

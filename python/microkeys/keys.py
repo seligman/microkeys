@@ -4,13 +4,14 @@
 * `type` - type text, any characters, whatever the keyboard layout
 * `down` / `up` - hold keys down and let them go
 * `hold` - hold keys down for a `with` block
+* `remap` - make one key act as another, or do nothing
 * `NAMED_KEYS` - every key name besides single characters
 """
 
 from contextlib import contextmanager
 
 from ._native import native
-from . import _keyspec, _settings, windows
+from . import _bindings, _keyspec, _settings, windows
 
 NAMED_KEYS = list(_keyspec.NAMED_KEYS)
 
@@ -103,3 +104,22 @@ def type(text, delay=None, hold=None):
     if not isinstance(text, str):
         text = str(text)
     native.send_keys([(2, ch) for ch in text if ch != "\r"], _delay(delay), _hold(hold), _frame())
+
+
+def remap(key, target, *, when=None):
+    """Make one key act as another while MicroKeys runs.
+
+        keys.remap("capslock", "ctrl")
+        keys.remap("insert", None)                       # Insert does nothing
+        keys.remap("rctrl", "apps", when="code.exe")
+
+    While `key` is held, programs see `target` held instead, so it works in
+    combinations too: with Caps Lock as Ctrl, Caps Lock+C copies.  A target
+    of None turns the key off.  Each is one key: a name from `NAMED_KEYS`, or
+    a character that has its own key, like "a" or "/".  `when` works as for
+    hotkey().  Keys that macros send aren't remapped.
+
+    Like other bindings, a remap made while a macro runs lasts until
+    `unbind(remap=...)` or the next reload.
+    """
+    _bindings.remap(key, target, when)

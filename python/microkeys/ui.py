@@ -3,6 +3,7 @@
 * `msgbox` - show a message, optionally with OK/Cancel or Yes/No
 * `input` - ask for a line of text
 * `choose` - pick one item from a list
+* `choose_file` - pick a file to open or save to
 * `toast` - a notification that doesn't need an answer
 * `show` - put a message on screen while a macro works, or to say it's done
 * `hide` - take that message down
@@ -44,6 +45,28 @@ def choose(items, prompt="", title="MicroKeys"):
         return None
     index = native.ask_choice([str(x) for x in items], str(prompt), str(title))
     return items[index] if 0 <= index < len(items) else None
+
+
+def choose_file(save=False, title=None, types=None, default=""):
+    """Ask for a file to open or, with `save`, a file to save to.  Returns
+    its full path, or None if the user cancels.
+
+        path = ui.choose_file(types=[("Text files", "*.txt"), ("All files", "*.*")])
+        path = ui.choose_file(save=True, default="report.csv")
+
+    `types` is a list of (description, pattern) pairs, and a pattern can
+    hold several, like "*.jpg;*.png".  When saving, a name typed without an
+    extension gets the first type's, and the user is asked before an
+    existing file is replaced.  `default` is the file name, or full path, to
+    start with.
+    """
+    pairs = []
+    for item in types or []:
+        name, pattern = item
+        pairs.append((str(name), str(pattern)))
+    if title is None:
+        title = "Save as" if save else "Open"
+    return native.ask_file(bool(save), str(title), pairs, str(default or ""))
 
 
 def toast(text, title="MicroKeys"):

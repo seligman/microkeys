@@ -14,8 +14,8 @@ import traceback
 import types
 
 from ._native import (native, LOG_INFO, LOG_OUTPUT, LOG_ERROR, FIRE_HOTKEY, FIRE_HOTSTRING, FIRE_COMMAND,
-                      FIRE_WINDOW, FIRE_TIMER, FIRE_CLIPBOARD)
-from . import _bindings, _keyspec, _packages, _settings, _store, _timers, clip, ui
+                      FIRE_WINDOW, FIRE_TIMER, FIRE_CLIPBOARD, FIRE_MESSAGE)
+from . import _bindings, _keyspec, _net, _packages, _settings, _store, _timers, _transfer, clip, net, ui
 
 _PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -208,6 +208,8 @@ def startup(config):
     _configure(first=True)
     _log(f"MicroKeys {native.version()}, Python {sys.version.split()[0]}")
     _log(f"Scripts: {_script_dir}")
+    if native.is_elevated():
+        _log("Running as administrator")
     return reload(settings=False, starting=True)
 
 
@@ -269,7 +271,10 @@ def _configure(first=False):
         _error(f"Bad abort_hotkey setting ({e}), using Ctrl+Alt+Backspace")
         mods, key, _ = _keyspec.parse_hotkey(_settings.DEFAULTS["abort_hotkey"])
     native.configure(script_dir, mods, key, str(settings.get("update_feed") or ""), bool(settings.get("check_updates", True)),
-                     str(settings.get("editor") or ""))
+                     str(settings.get("editor") or ""), bool(settings.get("run_elevated", False)))
+
+    net._data_dir = _config["data_dir"]
+    _net.configure(settings, _config["data_dir"], headless)
 
     # Packages scripts import, installed before the scripts load
     _packages.activate(_local_dir())
@@ -369,9 +374,10 @@ def _new_id(taken):
 def _publish():
     # Hand every binding to the app, and the timers to the scheduler
     global _published
-    hotkeys, hotstrings, commands, events, timers = [], [], [], [], []
+    hotkeys, hotstrings, commands, events, timers, remaps = [], [], [], [], [], []
     actions = {}
     names = {}
+    messages = {}
     seen = {}
     collectors = _collectors()
 
@@ -414,6 +420,13 @@ def _publish():
         for ev in collector.window_events:
             when = ev.when.fields() if ev.when else ("", "", "")
             events.append((claim(ev, FIRE_WINDOW, collector), ev.event) + when)
+        for rm in collector.remaps:
+            if not clash(("remap",) + rm.signature(), rm, live, f"Remap of {rm.key}"):
+                when = rm.when.fields() if rm.when else ("", "", "")
+                remaps.append((claim(rm, 0, collector), rm.key, rm.target or "") + when)
+        for msg in collector.messages:
+            if not clash(("message", msg.name), msg, live, f"Message {msg.name!r}"):
+                messages[msg.name] = claim(msg, FIRE_MESSAGE, collector)
         # A one-time timer that has been handed over keeps its id until its
         # job runs; the scheduler leaves it be
         for timer in collector.timers:
@@ -426,14 +439,16 @@ def _publish():
     _commands.update(names)
     _bindings.loaded[:] = collectors
     _bindings.changed = False
-    lists = (hotkeys, hotstrings, commands, events)
+    lists = (hotkeys, hotstrings, commands, events, remaps)
     if lists != _published:
         native.set_bindings(*lists)
         _published = lists
     if not _config.get("headless"):
         _scheduler.set(timers)
+    _net.set_handlers(messages)
     return {"hotkey": len(hotkeys), "hotstring": len(hotstrings), "command": len(commands),
-            "timer": len([t for t in timers if not t.spent]), "window event": len(events)}
+            "timer": len([t for t in timers if not t.spent]), "remap": len(remaps), "window event": len(events),
+            "message handler": len(messages)}
 
 
 def _counts(counts):
@@ -580,6 +595,14 @@ def _fire(kind, id, extra):
             return True
         return _run(item.func, f"timer {item.describe()}")
 
+    if kind == FIRE_MESSAGE:
+        try:
+            go, what = _net.dispatch(item, extra)
+        except (ValueError, KeyError) as e:
+            _error(f"A message from another machine was garbled: {e}")
+            return False
+        return _run(go, what)
+
     if kind == FIRE_WINDOW:
         from . import windows
         try:
@@ -662,6 +685,12 @@ def action(name):
             if done:
                 return reload()
             return True
+        if name in _MENU_ACTIONS:
+            done = []
+            _run(lambda: done.append(_MENU_ACTIONS[name]()), _MENU_ACTIONS[name].__doc__.strip())
+            if done and done[0]:
+                return reload()
+            return True
         _error(f"Unknown action {name!r}")
         return False
     finally:
@@ -684,7 +713,112 @@ def _install_packages():
     return specs
 
 
+def _new_token():
+    """making a pairing token"""
+    token = _net.new_token()
+    have = _net.read_token(_config["data_dir"])
+    if have is not None:
+        answer = ui.msgbox("This machine is already paired. A new token means pairing every other machine again.\n\n"
+                           "Make a new one anyway?", title="Networking", buttons="yesno")
+        if answer != "yes":
+            ui.input("This machine's pairing token. Copy it, then choose Networking > Enter a pairing token on the other machine "
+                     "and paste it there.", title="Networking", default=have)
+            return False
+    _net.save_token(_config["data_dir"], token)
+    ui.input("Copy this pairing token, then choose Networking > Enter a pairing token on the other machine and paste it there.",
+             title="Networking", default=token)
+    _log("Made a new pairing token for networking")
+    return True
+
+
+def _enter_token():
+    """entering a pairing token"""
+    text = ""
+    while True:
+        text = ui.input("Paste the pairing token from the other machine:", title="Networking", default=text)
+        if not text or not text.strip():
+            return False
+        try:
+            token = _net.check_token(text)
+        except ValueError as e:
+            if ui.msgbox(f"{e}.\n\nTry again?", title="Networking", buttons="yesno") != "yes":
+                return False
+            continue
+        _net.save_token(_config["data_dir"], token)
+        _log("Saved the pairing token for networking")
+        return True
+
+
+def _network_off():
+    """turning networking off"""
+    if _net.read_token(_config["data_dir"]) is None:
+        ui.msgbox("Networking is already off.", title="Networking")
+        return False
+    if ui.msgbox("Turn networking off? This forgets the pairing token, so other machines can't send messages here, "
+                 "and this machine can't send to them.", title="Networking", buttons="yesno") != "yes":
+        return False
+    _net.save_token(_config["data_dir"], None)
+    _log("Turned networking off")
+    return True
+
+
+def _export():
+    """exporting scripts and settings"""
+    path = ui.choose_file(save=True, title="Export scripts and settings", types=[("Zip files", "*.zip")],
+                          default=_transfer.default_name())
+    if not path:
+        return False
+    count = _transfer.export(path, _script_dir, _config["data_dir"])
+    _log(f"Exported {count} file{'s' if count != 1 else ''}, the settings, and the store to {path}")
+    native.toast("MicroKeys", f"Exported the scripts and settings to {os.path.basename(path)}")
+    return False
+
+
+def _import():
+    """importing scripts and settings"""
+    title = "Import scripts and settings"
+    path = ui.choose_file(title=title, types=[("Zip files", "*.zip")])
+    if not path:
+        return False
+    try:
+        plan = _transfer.read(path, _script_dir, _config["data_dir"])
+    except ValueError as e:
+        ui.msgbox(str(e), title=title)
+        return False
+    merge = f"Merge: bring in {plan.merge_summary()}, and keep everything else"
+    replace = "Replace: make the scripts, settings, and store match the zip exactly"
+    choice = ui.choose([merge, replace], prompt=f"Importing {os.path.basename(path)}.\n\n{_transfer.describe(plan)}", title=title)
+    if choice is None:
+        return False
+    backup = _transfer.backup_path(_config["data_dir"])
+    _transfer.export(backup, _script_dir, _config["data_dir"])
+    _transfer.apply(plan, choice == replace, _script_dir, _config["data_dir"])
+    _log(f"Imported {path} ({'replacing' if choice == replace else 'merging'}); the scripts and settings from before are in {backup}")
+    native.toast("MicroKeys", f"Imported {os.path.basename(path)}. A backup of what was here is in the data folder.")
+    return True
+
+
+def _toggle_elevated():
+    """changing the run as administrator setting"""
+    on = not bool(_settings.current.get("run_elevated", False))
+    _settings.update(_config, {"run_elevated": on}, _error)
+    if not on and native.is_elevated():
+        ui.msgbox("MicroKeys will run without administrator rights from the next time it starts.", title="MicroKeys")
+    return True
+
+
+_MENU_ACTIONS = {
+    "net-new-token": _new_token,
+    "net-enter-token": _enter_token,
+    "net-off": _network_off,
+    "export": _export,
+    "import": _import,
+    "toggle-elevated": _toggle_elevated,
+}
+
+
 def shutdown():
+    _net.stop()
     _scheduler.stop()
     _store.save()
     for stream in (sys.stdout, sys.stderr):

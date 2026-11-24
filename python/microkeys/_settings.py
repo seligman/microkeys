@@ -36,6 +36,18 @@ DEFAULTS = {
     "packages": [],
     # A port for a Python debugger such as VS Code to attach to; 0 is off
     "debug_port": 0,
+    # Run with administrator rights, so macros can work in programs that do
+    # too.  Windows asks to allow it each time MicroKeys starts, unless it
+    # starts with Windows.
+    "run_elevated": False,
+    # This machine's name for messages from other machines.  Empty means
+    # the computer's name.
+    "net_name": "",
+    # The port other machines send messages to
+    "net_port": 47913,
+    # Where to take messages: empty for every network, or one of this
+    # machine's addresses, like its Tailscale address, for that network only
+    "net_listen": "",
 }
 
 current = dict(DEFAULTS)
@@ -93,6 +105,26 @@ def load(config, log):
     return current
 
 
+def _write(config, data):
+    fn = os.path.join(config["data_dir"], "settings.json")
+    tmp = fn + ".tmp"
+    with open(tmp, "wt", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
+        f.write("\n")
+    os.replace(tmp, fn)
+
+
+def update(config, changes, log):
+    # Change some settings in settings.json, keeping everything else
+    fn = os.path.join(config["data_dir"], "settings.json")
+    try:
+        data = _read_json(fn) if os.path.isfile(fn) else _first_settings(config)
+        data.update(changes)
+        _write(config, data)
+    except Exception as e:
+        log(f"Unable to change {', '.join(changes)} in {fn}: {e}")
+
+
 def add_packages(config, specs, log):
     # Add packages to the list in settings.json, keeping everything else
     fn = os.path.join(config["data_dir"], "settings.json")
@@ -104,10 +136,6 @@ def add_packages(config, specs, log):
         if not added:
             return
         data["packages"] = have + added
-        tmp = fn + ".tmp"
-        with open(tmp, "wt", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
-            f.write("\n")
-        os.replace(tmp, fn)
+        _write(config, data)
     except Exception as e:
         log(f"Unable to add {', '.join(specs)} to the packages setting in {fn}: {e}")

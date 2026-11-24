@@ -39,12 +39,17 @@ Done for 1.1.1:
 - [x] Before each key goes down, typing waits (up to a second) for the program in front to get back to its messages, so keys don't pile up while it's busy
 - [x] A Ctrl+Alt hotkey lets go of Ctrl and presses it again while Alt is still down; otherwise when Alt is let go first, Windows 11's Notepad shows its access keys and the macro's typing drives its menus
 
-Later (P3):
+Done for 1.2:
 
-- [ ] Key remapping and mouse-button triggers
-- [ ] Messages between machines (`net.send()` and `@net.on()`, MagicDNS or Bonjour names, paired by token)
-- [ ] Screen: pixel colour, screenshot, wait for an image
-- [ ] UI Automation (Windows UIA, macOS AX)
-- [ ] Export and import scripts and settings as one zip
-- [ ] "Run elevated" option
-- [ ] The macOS port
+- [x] Key remapping (`keys.remap()`), and mouse buttons and wheel turns as hotkeys
+- [x] Messages between machines (`net.send()` and `@net.on()`), found through DNS (MagicDNS) or Bonjour, paired by a checked token, signed with HMAC-SHA256
+- [x] Screen: pixel colour, screenshots, finding and waiting for an image (`screen`)
+- [x] Controls in windows through UI Automation (`controls`)
+- [x] Finding and clicking text on screen, through accessibility or OCR (`screen.find_text`)
+- [x] Export and import scripts and settings as one zip, with a preview, merge or replace, and a backup first
+- [x] Run as administrator, with a scheduled task to start that way at sign-in
+- [x] `ui.choose_file()`, and `Window.elevated`
+
+Later:
+
+- [ ] The macOS port (including AX for `controls`)
